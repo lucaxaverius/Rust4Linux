@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-
+// rust_kprobes.rs
 //! Rust out-of-tree sample
 
 #![no_std]
@@ -7,19 +7,17 @@
 
 use kernel::prelude::*;
 
-
 module! {
     type: RustOutOfTree,
     name: "Rust Kprobes for kernel hacking",
     author: "Luca Saverio Esposito",
-    description: "A simple test to verify how kprobes are implemented in Rust",
+    description: "A simple test, trying to use kprobes in rust module with C help",
     license: "GPL",
 }
 
-
 struct Module;
 
-impl KernelModule for Module {
+impl kernel::Module for Module {
     fn init() -> Result<Self> {
         pr_info!("Rust kprobe module loaded!\n");
 
@@ -33,7 +31,7 @@ impl KernelModule for Module {
 impl Drop for Module {
     fn drop(&mut self) {
         pr_info!("Rust kprobe module unloaded!\n");
-        
+
         // Call the C function to clean up kprobe
         unsafe { cleanup_kprobe() };
     }

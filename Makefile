@@ -2,18 +2,19 @@
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-# Targets for building C and Rust code
-all: build_c build_rust
+# Build the C module
+c:
+	$(MAKE) -C $(KDIR) M=$(PWD) c
 
-build_c:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+# Build the Rust module
+rust:
+	$(MAKE) -C $(KDIR) M=$(PWD) rust
 
-build_rust:
-	cargo build --release
+# Build everything
+all: c rust
 
 modules_install: all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	cargo clean

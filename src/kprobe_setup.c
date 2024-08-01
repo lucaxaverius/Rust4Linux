@@ -11,23 +11,19 @@ static int handler_pre(struct pt_regs *regs) {
     return 0;
 }
 
-static int __init kprobe_init(void) {
+void initialize_kprobe(void) {
     kp.pre_handler = handler_pre;
     int ret = register_kprobe(&kp);
     if (ret < 0) {
         printk(KERN_INFO "Failed to register kprobe\n");
-        return ret;
+        return;
     }
     printk(KERN_INFO "Kprobe registered\n");
-    return 0;
 }
 
-static void __exit kprobe_exit(void) {
+void cleanup_kprobe(void) {
     unregister_kprobe(&kp);
     printk(KERN_INFO "Kprobe unregistered\n");
 }
-
-module_init(kprobe_init);
-module_exit(kprobe_exit);
 
 MODULE_LICENSE("GPL");
