@@ -6,7 +6,7 @@ use kernel::prelude::*;
 
 module! {
     type: RustKprobes,
-    name: "Rust Kprobes for kernel hacking",
+    name: "rust_kprobes",
     author: "Luca Saverio Esposito",
     description: "A simple test, trying to use kprobes in rust module with C help",
     license: "GPL",
