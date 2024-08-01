@@ -6,7 +6,7 @@
 #![no_main]
 
 use kernel::prelude::*;
-use kernel::kprobes::*;
+
 
 module! {
     type: RustOutOfTree,
@@ -16,9 +16,10 @@ module! {
     license: "GPL",
 }
 
-struct KprobeExample;
 
-impl kernel::Module for KprobeExample {
+struct Module;
+
+impl KernelModule for Module {
     fn init() -> Result<Self> {
         pr_info!("Rust kprobe module loaded!\n");
 
@@ -29,18 +30,13 @@ impl kernel::Module for KprobeExample {
     }
 }
 
-impl Drop for KprobeExample {
+impl Drop for Module {
     fn drop(&mut self) {
-        pr_info!("Kprobes example module unloaded!");
+        pr_info!("Rust kprobe module unloaded!\n");
         
         // Call the C function to clean up kprobe
         unsafe { cleanup_kprobe() };
     }
-}
-
-fn handler(_regs: &Registers) -> KprobeAction {
-    pr_info!("kprobe handler intercepted the syscall!");
-    KprobeAction::Continue
 }
 
 // FFI declarations
