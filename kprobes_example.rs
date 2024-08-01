@@ -15,31 +15,36 @@ module! {
     description: "A simple test to verify how kprobes are implemented in Rust",
     license: "GPL",
 }
+
 struct KprobeExample;
 
 impl kernel::Module for KprobeExample {
     fn init() -> Result<Self> {
-        pr_info!("Hello, kprobes example module loaded!");
+        pr_info!("Rust kprobe module loaded!\n");
 
-        let kprobe = Kprobe::new(
-            b"do_sys_open", // This is a function name in the kernel source
-            handler
-        )?;
-        kprobe.attach()?;
+        // Call the C function to initialize kprobe
+        unsafe { initialize_kprobe() };
 
-        pr_info!("Kprobe attached!");
-
-        Ok(KprobeExample)
+        Ok(Module)
     }
 }
 
 impl Drop for KprobeExample {
     fn drop(&mut self) {
         pr_info!("Kprobes example module unloaded!");
+        
+        // Call the C function to clean up kprobe
+        unsafe { cleanup_kprobe() };
     }
 }
 
 fn handler(_regs: &Registers) -> KprobeAction {
     pr_info!("kprobe handler intercepted the syscall!");
     KprobeAction::Continue
+}
+
+// FFI declarations
+extern "C" {
+    fn initialize_kprobe();
+    fn cleanup_kprobe();
 }
