@@ -2,9 +2,6 @@
 // rust_kprobes.rs
 //! Rust out-of-tree sample, with C code inclusion
 
-#![no_std]
-#![no_main]
-
 use kernel::prelude::*;
 
 module! {
@@ -15,10 +12,10 @@ module! {
     license: "GPL",
 }
 
-struct Module;
+struct RustOutOfTree;
 
 impl kernel::Module for Module {
-    fn init() -> Result<Self> {
+    fn init(_module: &'static ThisModule) -> Result<Self> {
         pr_info!("Rust kprobe module loaded!\n");
 
         // Call the C function to initialize kprobe
