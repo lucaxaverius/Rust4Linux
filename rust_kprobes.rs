@@ -5,27 +5,27 @@
 use kernel::prelude::*;
 
 module! {
-    type: RustOutOfTree,
+    type: RustKprobes,
     name: "Rust Kprobes for kernel hacking",
     author: "Luca Saverio Esposito",
     description: "A simple test, trying to use kprobes in rust module with C help",
     license: "GPL",
 }
 
-struct RustOutOfTree;
+struct RustKprobes;
 
-impl kernel::Module for Module {
+impl kernel::Module for RustKprobes {
     fn init(_module: &'static ThisModule) -> Result<Self> {
         pr_info!("Rust kprobe module loaded!\n");
 
         // Call the C function to initialize kprobe
         unsafe { initialize_kprobe() };
 
-        Ok(Module)
+        Ok(RustKprobes)
     }
 }
 
-impl Drop for Module {
+impl Drop for RustKprobes {
     fn drop(&mut self) {
         pr_info!("Rust kprobe module unloaded!\n");
 
