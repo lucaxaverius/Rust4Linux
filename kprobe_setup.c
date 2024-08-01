@@ -12,14 +12,16 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
 }
 
 // Declared static to avoid warnings about missing prototypes
-static void initialize_kprobe(void) {
+static int initialize_kprobe(void) {
     kp.pre_handler = handler_pre;
     int ret = register_kprobe(&kp);
     if (ret < 0) {
         printk(KERN_INFO "Failed to register kprobe\n");
+        return ret;
     } else {
         printk(KERN_INFO "Kprobe registered\n");
     }
+    return 0;
 }
 
 // Declared static to avoid warnings about missing prototypes
