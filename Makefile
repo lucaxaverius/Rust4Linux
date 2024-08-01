@@ -2,16 +2,9 @@
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-# Build the C module
-c:
-	$(MAKE) -C $(KDIR) M=$(PWD) c
-
-# Build the Rust module
-rust:
-	$(MAKE) -C $(KDIR) M=$(PWD) rust
-
-# Build everything
-all: c rust
+# Build everything (both C and Rust code)
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) LLVM=1 modules
 
 modules_install: all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
