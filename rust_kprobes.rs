@@ -19,7 +19,7 @@ impl kernel::Module for RustKprobes {
         pr_info!("Rust kprobe module loaded!\n");
 
         // Call the C function to initialize kprobe
-        unsafe { initialize_kprobe() };
+        call_initialize_kprobe();
 
         Ok(RustKprobes)
     }
@@ -30,7 +30,7 @@ impl Drop for RustKprobes {
         pr_info!("Rust kprobe module unloaded!\n");
 
         // Call the C function to clean up kprobe
-        unsafe { cleanup_kprobe() };
+        call_cleanup_kprobe();
     }
 }
 
@@ -38,4 +38,12 @@ impl Drop for RustKprobes {
 extern "C" {
     fn initialize_kprobe();
     fn cleanup_kprobe();
+}
+
+pub fn call_initialize_kprobe() {
+    unsafe { initialize_kprobe() }
+}
+
+pub fn call_cleanup_kprobe() {
+    unsafe { cleanup_kprobe() }
 }
