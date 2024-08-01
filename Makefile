@@ -6,14 +6,14 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 all: build_c build_rust
 
 build_c:
-    $(MAKE) -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 build_rust:
-    cargo build --release
+	cargo build --release
 
 modules_install: all
-    $(MAKE) -C $(KDIR) M=$(PWD) modules_install
+	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
 
 clean:
-    $(MAKE) -C $(KDIR) M=$(PWD) clean
-    cargo clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	cargo clean
