@@ -3,8 +3,6 @@
 
 obj-m += rust_kprobes.o
 
-# List the Rust file(s) that contribute to rust_kprobes
-rust_kprobes-objs := rust_kprobes.rs
-
-# List the C file(s) that contribute to rust_kprobes
-obj-y += kprobe_setup.o
+# Specify the directories containing C and Rust files
+rust_kprobes-objs := rust/rust_kprobes.rs
+obj-y += c/
