@@ -1,4 +1,0 @@
-# rust/Kbuild
-
-# Rust module file
-rust_kprobes-objs := rust_kprobes.rs
