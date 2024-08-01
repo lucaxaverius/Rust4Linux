@@ -1,3 +1,0 @@
-# c/Kbuild
-
-obj-y += kprobe_setup.o
