@@ -1,4 +1,5 @@
 #include <linux/module.h>
+#include <linux/kernel.h>
 #include <linux/kprobes.h>
 
 static struct kprobe kp = {
