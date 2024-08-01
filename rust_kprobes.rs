@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 // rust_kprobes.rs
-//! Rust out-of-tree sample
+//! Rust out-of-tree sample, with C code inclusion
 
 #![no_std]
 #![no_main]
