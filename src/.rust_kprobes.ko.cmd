@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/src/rust_kprobes.ko := ld.lld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/src/rust_kprobes.ko /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/src/rust_kprobes.o /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/src/rust_kprobes.mod.o

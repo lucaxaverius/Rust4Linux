@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/rust_kprobes.o := ld.lld -m elf_x86_64 -z noexecstack   -r -o /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/rust_kprobes.o @/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/rust_kprobes.mod 

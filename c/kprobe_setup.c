@@ -4,6 +4,9 @@
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
 
+int initialize_kprobe(void);
+void cleanup_kprobe(void);
+
 static struct kprobe kp = {
     .symbol_name = "vfs_open",  // Example: Intercept the 'vfs_open' syscall
 };
@@ -15,7 +18,7 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
 }
 
 // Declared static to avoid warnings about missing prototypes
-static int initialize_kprobe(void) {
+int initialize_kprobe(void) {
     kp.pre_handler = handler_pre;
     int ret = register_kprobe(&kp);
     if (ret < 0) {
@@ -26,14 +29,16 @@ static int initialize_kprobe(void) {
     }
     return 0;
 }
+EXPORT_SYMBOL(initialize_kprobe);
 
 // Declared static to avoid warnings about missing prototypes
-static void cleanup_kprobe(void) {
+void cleanup_kprobe(void) {
     unregister_kprobe(&kp);
     printk(KERN_INFO "Kprobe unregistered\n");
 }
+EXPORT_SYMBOL(cleanup_kprobe);
 
-module_init(initialize_kprobe);
-module_exit(cleanup_kprobe);
+//module_init(initialize_kprobe);
+//module_exit(cleanup_kprobe);
 
 MODULE_LICENSE("GPL");
