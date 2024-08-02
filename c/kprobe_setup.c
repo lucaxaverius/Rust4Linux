@@ -13,7 +13,15 @@ static struct kprobe kp = {
 
 // Adjusted function signature to match kprobe_pre_handler_t
 static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
-    printk(KERN_INFO "Kprobe: vfs_open called\n");
+    struct path* path;
+    const char *pathname;
+    struct inode* inode;
+
+    path = (struct path *) regs->di;
+    pathname = path->dentry->d_name.name;
+    inode = path->dentry->d_inode;
+    printk(KERN_INFO "Kprobe: vfs_open called on: %s  with inode: %d \n",pathname, inode->i_ino);
+    
     return 0;
 }
 
