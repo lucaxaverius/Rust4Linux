@@ -18,4 +18,3 @@ Currently, the repository includes a single module called Kprobes. This module d
 **Features of the Kprobes Module**
 - Interaction with C Code: The module interacts with existing C code to leverage Kprobe functionality.
 - Registration of Kprobes: It allows for the registration and management of Kprobes from within a Rust module.
-- 
