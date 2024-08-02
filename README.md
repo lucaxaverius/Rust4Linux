@@ -1,44 +1,21 @@
-# Rust out-of-tree module
+# Rust4LinuxExperiments
+Welcome to the Rust for Linux Kernel Experiments repository. <br />
+This project contains experiments focused on exploring the support for the Rust programming language within the Linux kernel. Specifically, we will be creating out-of-tree kernel modules to investigate the extent to which Rust can be integrated and utilized in kernel development.
 
-This is a basic template for an out-of-tree Linux kernel module written in Rust.
+## Introduction
+Rust is a modern programming language that promises memory safety and concurrency without sacrificing performance. These features make it an attractive candidate for systems programming, including operating system kernels. This repository contains a series of experimental out-of-tree modules for the Linux kernel written in Rust, designed to test the capabilities and limitations of Rust in this context.
 
-Please note that:
+## Project Goals
+-   Explore Rust Integration: Investigate the integration of Rust with the Linux kernel.
+-   Develop Kernel Modules: Create and test out-of-tree kernel modules written in Rust.
+-   Document Findings: Share the results, challenges, and solutions encountered during the experiments.
+-   Contribute to the Community: Provide valuable insights and potential contributions to the Linux and Rust communities.
 
-  - The Rust support is experimental.
+## Current Progess
+### Kprobes Module
+Currently, the repository includes a single module called Kprobes. This module demonstrates how Rust can interact with C code to register Kprobes within a Rust-based kernel module. Kprobes is a powerful debugging mechanism in the Linux kernel, allowing you to dynamically break into any kernel routine and collect debugging and performance information non-disruptively.
 
-  - The kernel that the module is built against needs to be Rust-enabled (`CONFIG_RUST=y`).
-
-  - The kernel tree (`KDIR`) requires the Rust metadata to be available. These are generated during the kernel build, but may not be available for installed/distributed kernels (the scripts that install/distribute kernel headers etc. for the different package systems and Linux distributions are not updated to take into account Rust support yet).
-
-  - All Rust symbols are `EXPORT_SYMBOL_GPL`.
-
-Example:
-
-```sh
-$ make KDIR=.../linux-with-rust-support LLVM=1
-make -C .../linux-with-rust-support M=$PWD
-make[1]: Entering directory '.../linux-with-rust-support'
-  RUSTC [M] .../rust-out-of-tree-module/rust_out_of_tree.o
-  MODPOST .../rust-out-of-tree-module/Module.symvers
-  CC [M]  .../rust-out-of-tree-module/rust_out_of_tree.mod.o
-  LD [M]  .../rust-out-of-tree-module/rust_out_of_tree.ko
-make[1]: Leaving directory '.../linux-with-rust-support'
-```
-
-```txt
-[    1.076945] rust_out_of_tree: Rust out-of-tree sample (init)
-[    1.084944] rust_out_of_tree: My numbers are [72, 108, 200]
-[    1.085944] rust_out_of_tree: Rust out-of-tree sample (exit)
-```
-
-For details about the Rust support, see https://rust-for-linux.com.
-
-For details about out-of-tree modules, see https://docs.kernel.org/kbuild/modules.html.
-
-## rust-analyzer
-
-Rust for Linux (with https://lore.kernel.org/rust-for-linux/20230121052507.885734-1-varmavinaym@gmail.com/ applied) supports building a `rust-project.json` configuration for [`rust-analyzer`](https://rust-analyzer.github.io/), including for out-of-tree modules:
-
-```sh
-make -C .../linux-with-rust-support M=$PWD rust-analyzer
-```
+**Features of the Kprobes Module**
+- Interaction with C Code: The module interacts with existing C code to leverage Kprobe functionality.
+- Registration of Kprobes: It allows for the registration and management of Kprobes from within a Rust module.
+- 
