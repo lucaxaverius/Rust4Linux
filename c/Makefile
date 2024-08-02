@@ -6,7 +6,7 @@ obj-m := kprobe_setup.o
 
 # Default target
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	$(MAKE) LLVM=1 -C $(KDIR) M=$(PWD) modules
 
 # Clean up generated files
 clean:
