@@ -1,6 +1,9 @@
 #include <linux/module.h>
+#include <linux/init.h>
 #include <linux/security.h>
 #include <linux/fs.h>
+#include <linux/sched.h>
+#include <linux/cred.h>
 
 static int my_file_open(struct inode *inode, struct file *file)
 {
@@ -32,17 +35,19 @@ static int my_inode_permission(struct inode *inode, int mask)
     return 0;
 }
 
-static struct security_hook_list my_hooks[] = {
-    LSM_HOOK_INIT(file_open, my_file_open),
+static struct security_hook_list my_hooks[]  __lsm_ro_after_init = {
+    LSM_HOOK_INIT(file_open, my_file_open), 
     LSM_HOOK_INIT(inode_permission, my_inode_permission),
 };
 
 static int __init my_lsm_init(void)
 {
-    pr_info("My LSM: Initializing...\n");
+    pr_info("My LSM: Initializing...\n"); 
     security_add_hooks(my_hooks, ARRAY_SIZE(my_hooks), "my_lsm");
     return 0;
 }
+
+security_initcall(my_lsm_init);
 
 static void __exit my_lsm_exit(void)
 {
@@ -50,7 +55,6 @@ static void __exit my_lsm_exit(void)
     // Cleanup code if necessary
 }
 
-module_init(my_lsm_init);
 module_exit(my_lsm_exit);
 
 MODULE_LICENSE("GPL");
