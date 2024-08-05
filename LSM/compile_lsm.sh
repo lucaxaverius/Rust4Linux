@@ -13,13 +13,14 @@ case "$1" in
         exit 0
         ;;
     *)
+        echo "Starting compile_lsm script" > /dev/kmsg
+
         # Mount the root filesystem as read-write
         mount -o remount,rw /
 
         # Ensure the build environment is set up
-        # Ensure the kernel headers and make tools are available in initramfs
         if [ ! -d /lib/modules/$(uname -r)/build ]; then
-            echo "Kernel source not found. Exiting."
+            echo "Kernel source not found. Exiting." > /dev/kmsg
             exit 1
         fi
 
@@ -32,18 +33,15 @@ case "$1" in
         cp /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/my_lsm.c .
 
         # Compile the module
-        make LLVM=1 -C /lib/modules/$(uname -r)/build M=$PWD modules
+        make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
         # Check if the module compiled successfully
         if [ -f my_lsm.ko ]; then
             # Move the compiled module to the appropriate location
-            mkdir -p /lib/modules/$(uname -r)/kernel/security
-            cp my_lsm.ko /lib/modules/$(uname -r)/kernel/security/
             insmod my_lsm.ko
-            echo "Custom LSM correctly installed"
-
+            echo "Custom LSM module installed and loaded" > /dev/kmsg
         else
-            echo "Module compilation failed. Exiting."
+            echo "Module compilation failed. Exiting." > /dev/kmsg
             exit 1
         fi
         ;;
