@@ -49,7 +49,7 @@ static struct security_hook_list my_hooks[] = {
 };
 
 // Define the LSM identifier
-static struct lsm_id my_lsm_id __lsm_ro_after_init = {
+static struct lsm_id my_lsm_id = {
     .name = "my_lsm",
     .id = LSM_ID_MY_LSM
 };
