@@ -7,7 +7,7 @@
 #include <linux/lsm_hooks.h>
 
 // Define the file open hook
-static int my_file_open(struct inode *inode, struct file *file)
+static int my_file_open(struct file *file)
 {
     const struct cred *cred;
     uid_t uid;
@@ -24,7 +24,7 @@ static int my_file_open(struct inode *inode, struct file *file)
     // Example: Deny access if the user ID is 1000 (non-root user)
     if (uid == 1000) {
         pr_info("My LSM: Access denied for process %s (UID: %d)\n", process_name, uid);
-        //return -EACCES;
+        return -EACCES;
     }
 
     return 0;
@@ -44,11 +44,18 @@ static struct security_hook_list my_hooks[] = {
     LSM_HOOK_INIT(inode_permission, my_inode_permission),
 };
 
+// Define the LSM identifier
+static struct lsm_id my_lsm_id  = {
+    .name = "my_lsm",
+    .order = LSM_ORDER_LAST,  // Choose appropriate order
+    .enabled = true,
+};
+
 static int __init my_lsm_init(void)
 {
     pr_info("My LSM: Initializing...\n");
     // Register the hooks
-    security_add_hooks(my_hooks, ARRAY_SIZE(my_hooks), "my_lsm");
+    security_add_hooks(my_hooks, ARRAY_SIZE(my_hooks), &my_lsm_id);
     return 0;
 }
 
