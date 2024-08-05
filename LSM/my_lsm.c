@@ -6,6 +6,10 @@
 #include <linux/cred.h>
 #include <linux/lsm_hooks.h>
 
+
+// Define a unique LSM ID
+#define LSM_ID_MY_LSM 1001
+
 // Define the file open hook
 static int my_file_open(struct file *file)
 {
@@ -45,10 +49,9 @@ static struct security_hook_list my_hooks[] = {
 };
 
 // Define the LSM identifier
-static struct lsm_id my_lsm_id  = {
+static struct lsm_id my_lsm_id __lsm_ro_after_init = {
     .name = "my_lsm",
-    .order = LSM_ORDER_LAST,  // Choose appropriate order
-    .enabled = true,
+    .id = LSM_ID_MY_LSM
 };
 
 static int __init my_lsm_init(void)
