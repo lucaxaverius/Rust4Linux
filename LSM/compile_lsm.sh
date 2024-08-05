@@ -32,14 +32,16 @@ case "$1" in
         cp /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/my_lsm.c .
 
         # Compile the module
-        make -C /lib/modules/$(uname -r)/build M=$PWD modules
+        make LLVM=1 -C /lib/modules/$(uname -r)/build M=$PWD modules
 
         # Check if the module compiled successfully
         if [ -f my_lsm.ko ]; then
             # Move the compiled module to the appropriate location
             mkdir -p /lib/modules/$(uname -r)/kernel/security
             cp my_lsm.ko /lib/modules/$(uname -r)/kernel/security/
-            insmod /root/lsm_module/my_lsm.ko
+            insmod my_lsm.ko
+            echo "Custom LSM correctly installed"
+
         else
             echo "Module compilation failed. Exiting."
             exit 1
