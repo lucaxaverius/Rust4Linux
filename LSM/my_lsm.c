@@ -24,7 +24,7 @@ static int my_file_open(struct file *file)
     // Example: Deny access if the user ID is 1000 (non-root user)
     if (uid == 1000) {
         pr_info("My LSM: Access denied for process %s (UID: %d)\n", process_name, uid);
-        return -EACCES;
+        //return -EACCES;
     }
 
     return 0;
