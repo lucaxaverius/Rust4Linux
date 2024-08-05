@@ -6,6 +6,7 @@
 #include <linux/cred.h>
 #include <linux/lsm_hooks.h>
 
+// Define the file open hook
 static int my_file_open(struct inode *inode, struct file *file)
 {
     const struct cred *cred;
@@ -36,7 +37,8 @@ static int my_inode_permission(struct inode *inode, int mask)
     return 0;
 }
 
-static struct security_hook_list my_hooks[]  __lsm_ro_after_init = {
+// Define the LSM hook list with the __lsm_ro_after_init annotation
+static struct security_hook_list my_hooks[] __lsm_ro_after_init = {
     LSM_HOOK_INIT(file_open, my_file_open), 
     LSM_HOOK_INIT(inode_permission, my_inode_permission),
 };
@@ -48,7 +50,8 @@ static int __init my_lsm_init(void)
     return 0;
 }
 
-security_initcall(my_lsm_init);
+// Use the core_initcall to ensure early initialization
+core_initcall(my_lsm_init);
 
 static void __exit my_lsm_exit(void)
 {
