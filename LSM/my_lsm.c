@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/cred.h>
+#include <linux/lsm_hooks.h>
 
 static int my_file_open(struct inode *inode, struct file *file)
 {
