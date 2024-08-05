@@ -30,13 +30,7 @@ static int my_file_open(struct inode *inode, struct file *file)
     return 0;
 }
 
-// Define the LSM hook list with the __lsm_ro_after_init annotation
-static struct security_hook_list my_hooks[] __lsm_ro_after_init = {
-    LSM_HOOK_INIT(file_open, my_file_open), 
-    LSM_HOOK_INIT(inode_permission, my_inode_permission),
-};
-
-
+// Define another LSM hook for inode permission
 static int my_inode_permission(struct inode *inode, int mask)
 {
     pr_info("My LSM: Inode permission intercepted\n");
@@ -44,9 +38,16 @@ static int my_inode_permission(struct inode *inode, int mask)
     return 0;
 }
 
+// Define the LSM hook list
+static struct security_hook_list my_hooks[] = {
+    LSM_HOOK_INIT(file_open, my_file_open),
+    LSM_HOOK_INIT(inode_permission, my_inode_permission),
+};
+
 static int __init my_lsm_init(void)
 {
-    pr_info("My LSM: Initializing...\n"); 
+    pr_info("My LSM: Initializing...\n");
+    // Register the hooks
     security_add_hooks(my_hooks, ARRAY_SIZE(my_hooks), "my_lsm");
     return 0;
 }
