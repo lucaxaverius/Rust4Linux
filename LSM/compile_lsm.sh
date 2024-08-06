@@ -1,5 +1,5 @@
 #!/bin/sh
-# Early boot script to compile the LSM module
+# Early boot script to compile and load the LSM module
 
 PREREQ=""
 
@@ -13,24 +13,25 @@ case "$1" in
         exit 0
         ;;
     *)
-        echo "LSM_Installer: Starting compile_lsm script" > /dev/kmsg
+        echo "LSM_Installer: Starting compile_and_load_lsm script" > /dev/kmsg
 
         # Mount the root filesystem as read-write
         mount -o remount,rw /
 
-        # Ensure module source directory exists
-        MODULE_SRC_DIR="/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
+        # Define module source directory
+        MODULE_SRC_DIR="/usr/src/lsm_module"
 
-        if [ ! -d "${MODULE_SRC_DIR}" ]; then
+        # Ensure module source directory exists
+        if [ ! -d "$MODULE_SRC_DIR" ]; then
             echo "LSM_Installer: Module source directory not found. Exiting." > /dev/kmsg
             exit 1
         fi
 
         # Navigate to the directory with the module source
-        cd "${MODULE_SRC_DIR}"
+        cd "$MODULE_SRC_DIR"
 
         # Compile the module using the headers from the root filesystem
-        make 
+        make
 
         # Check if the module compiled successfully
         if [ -f my_lsm.ko ]; then
