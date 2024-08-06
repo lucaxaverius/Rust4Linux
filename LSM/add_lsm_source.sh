@@ -13,6 +13,8 @@ case "$1" in
         exit 0
         ;;
     *)
+        echo "LSM_Installer: Initialization" > /dev/kmsg
+
         # Define source and destination directories
         SRC_DIR="/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
         DEST_DIR="${DESTDIR}/usr/src/lsm_module"
@@ -21,6 +23,6 @@ case "$1" in
         mkdir -p "$DEST_DIR"
         cp -r "$SRC_DIR"/* "$DEST_DIR"
 
-        echo "LSM source files copied to initramfs" > /dev/kmsg
+        echo "LSM_Installer: LSM source files copied to initramfs" > /dev/kmsg
         ;;
 esac

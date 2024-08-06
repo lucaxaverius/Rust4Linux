@@ -7,23 +7,27 @@ prereqs() {
     echo "$PREREQ"
 }
 
+log_message() {
+    echo "$1" >> /tmp/lsm_installer.log
+    echo "$1" > /dev/kmsg
+}
+
 case "$1" in
     prereqs)
         prereqs
         exit 0
         ;;
     *)
-        echo "LSM_Installer: Starting compile_and_load_lsm script" > /dev/kmsg
+        log_message "LSM_Installer: Starting compile_and_load_lsm script"
 
         # Mount the root filesystem as read-write
         mount -o remount,rw /
 
-        # Define module source directory
+        # Ensure module source directory exists
         MODULE_SRC_DIR="/usr/src/lsm_module"
 
-        # Ensure module source directory exists
         if [ ! -d "$MODULE_SRC_DIR" ]; then
-            echo "LSM_Installer: Module source directory not found. Exiting." > /dev/kmsg
+            log_message "LSM_Installer: Module source directory not found. Exiting."
             exit 1
         fi
 
@@ -31,15 +35,15 @@ case "$1" in
         cd "$MODULE_SRC_DIR"
 
         # Compile the module using the headers from the root filesystem
-        make
+        make > /tmp/lsm_compile.log 2>&1
 
         # Check if the module compiled successfully
         if [ -f my_lsm.ko ]; then
             # Install and load the module
-            insmod my_lsm.ko
-            echo "LSM_Installer: Custom LSM module installed and loaded" > /dev/kmsg
+            insmod my_lsm.ko > /tmp/lsm_compile.log 2>&1
+            log_message "LSM_Installer: Custom LSM module installed and loaded"
         else
-            echo "LSM_Installer: Module compilation failed. Exiting." > /dev/kmsg
+            log_message "LSM_Installer: Module compilation failed. Check /tmp/lsm_compile.log for details."
             exit 1
         fi
         ;;
