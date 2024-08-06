@@ -12,11 +12,6 @@ log_message() {
     echo "$1" > /dev/kmsg
 }
 
-cleanup() {
-    # Unmount filesystems
-    umount /sys 2>/dev/null
-    umount /proc 2>/dev/null
-}
 
 case "$1" in
     prereqs)
@@ -27,8 +22,8 @@ case "$1" in
         log_message "LSM_Installer: Starting compile_and_load_lsm script"
 
         # Mount necessary filesystems
-        mount -t proc proc /proc
-        mount -t sysfs sysfs /sys
+        #mount -t proc proc /proc
+        #mount -t sysfs sysfs /sys
 
         # Mount the root filesystem on /
         if ! mount /dev/vda3 /; then
