@@ -1,5 +1,4 @@
 #!/bin/sh
-# Hook script to copy LSM source files into initramfs
 
 PREREQ=""
 
@@ -13,16 +12,18 @@ case "$1" in
         exit 0
         ;;
     *)
-        echo "LSM_Installer: Initialization" > /dev/kmsg
+        echo "LSM_Installer: Starting the initialization phase" 
 
-        # Define source and destination directories
-        SRC_DIR="/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
-        DEST_DIR="${DESTDIR}/usr/src/lsm_module"
+        # Copy necessary tools
+        copy_exec /usr/bin/make /usr/bin
+        copy_exec /usr/bin/gcc /usr/bin
 
-        # Copy source files to initramfs
-        mkdir -p "$DEST_DIR"
-        cp -r "$SRC_DIR"/* "$DEST_DIR"
+        # Copy kernel headers
+        mkdir -p "${DESTDIR}/lib/modules/$(uname -r)/build"
+        cp -r /lib/modules/$(uname -r)/build/* "${DESTDIR}/lib/modules/$(uname -r)/build/"
 
-        echo "LSM_Installer: LSM source files copied to initramfs" > /dev/kmsg
+        # Copy the module source code
+        mkdir -p "${DESTDIR}/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
+        cp -r /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/* "${DESTDIR}/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/"
         ;;
 esac

@@ -12,7 +12,6 @@ log_message() {
     echo "$1" > /dev/kmsg
 }
 
-
 case "$1" in
     prereqs)
         prereqs
@@ -55,12 +54,12 @@ case "$1" in
         # Check if the module compiled successfully
         if [ -f my_lsm.ko ]; then
             # Install and load the module
-            if ! insmod my_lsm.ko > /tmp/lsm_compile.log 2>&1; then
-                log_message "LSM_Installer: Failed to load the module. Check /tmp/lsm_compile.log for details."
+            if ! insmod my_lsm.ko > /tmp/lsm_load.log 2>&1; then
+                log_message "LSM_Installer: Failed to load the module. Check /tmp/lsm_load.log for details."
                 exit 1
             fi
             log_message "LSM_Installer: Custom LSM module installed and loaded"
-        else
+        else {
             log_message "LSM_Installer: Module compilation did not produce my_lsm.ko. Check /tmp/lsm_compile.log for details."
             exit 1
         fi
