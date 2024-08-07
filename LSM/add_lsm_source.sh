@@ -12,18 +12,34 @@ case "$1" in
         exit 0
         ;;
     *)
-        echo "LSM_Installer: Starting the initialization phase" 
+        # Ensure destination directories exist
+        mkdir -p "${DESTDIR}/usr/bin"
+        mkdir -p "${DESTDIR}/lib/modules/$(uname -r)/build"
+        mkdir -p "${DESTDIR}/lib/modules/$(uname -r)/build/include"
+        mkdir -p "${DESTDIR}/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
 
         # Copy necessary tools
-        copy_exec /usr/bin/make /usr/bin
-        copy_exec /usr/bin/gcc /usr/bin
+        cp /usr/bin/make "${DESTDIR}/usr/bin/"
+        cp /usr/bin/gcc "${DESTDIR}/usr/bin/"
 
-        # Copy kernel headers
-        mkdir -p "${DESTDIR}/lib/modules/$(uname -r)/build"
-        cp -r /lib/modules/$(uname -r)/build/* "${DESTDIR}/lib/modules/$(uname -r)/build/"
+        # Copy essential kernel headers
+        KERNEL_BUILD_DIR="/lib/modules/$(uname -r)/build"
+        if [ -d "${KERNEL_BUILD_DIR}" ]; then
+            cp "${KERNEL_BUILD_DIR}/Makefile" "${DESTDIR}/lib/modules/$(uname -r)/build/"
+            cp -r "${KERNEL_BUILD_DIR}/include" "${DESTDIR}/lib/modules/$(uname -r)/build/"
+            cp -r "${KERNEL_BUILD_DIR}/scripts" "${DESTDIR}/lib/modules/$(uname -r)/build/"
+        else
+            echo "Kernel build directory not found: ${KERNEL_BUILD_DIR}"
+            exit 1
+        fi
 
         # Copy the module source code
-        mkdir -p "${DESTDIR}/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
-        cp -r /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/* "${DESTDIR}/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/"
+        MODULE_SRC_DIR="/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM"
+        if [ -d "${MODULE_SRC_DIR}" ]; then
+            cp -r "${MODULE_SRC_DIR}"/* "${DESTDIR}${MODULE_SRC_DIR}/"
+        else
+            echo "Module source directory not found: ${MODULE_SRC_DIR}"
+            exit 1
+        fi
         ;;
 esac

@@ -59,11 +59,9 @@ case "$1" in
                 exit 1
             fi
             log_message "LSM_Installer: Custom LSM module installed and loaded"
-        else {
+        else
             log_message "LSM_Installer: Module compilation did not produce my_lsm.ko. Check /tmp/lsm_compile.log for details."
             exit 1
         fi
-
-        # Unmount filesystems (if applicable)
         ;;
 esac
