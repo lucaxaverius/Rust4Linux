@@ -4,6 +4,8 @@
 
 use kernel::prelude::*;
 
+const BLACKLISTED_USER_IDS: [u32; 3] = [1003, 1001, 1002];
+
 module! {
     type: RustKprobes,
     name: "rust_kprobes",
@@ -31,6 +33,18 @@ impl Drop for RustKprobes {
 
         // Call the C function to clean up kprobe
         call_cleanup_kprobe();
+    }
+}
+
+// Rust function to check if a user ID is blacklisted
+#[no_mangle]
+pub extern "C" fn check_user_id(user_id: u32) -> bool {
+    if BLACKLISTED_USER_IDS.contains(&user_id){
+        pr_warn!("Kprobe: Blacklisted user {} detected!\n",user_id);    
+        true
+    }
+    else{
+        false
     }
 }
 
