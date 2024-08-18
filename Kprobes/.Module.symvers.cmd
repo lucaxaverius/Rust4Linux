@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/Kprobes/Module.symvers :=  scripts/mod/modpost -M  -a      -o /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/Kprobes/Module.symvers -T /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/Kprobes/modules.order -i Module.symvers -e 

@@ -1,0 +1,2 @@
+0x00000000	initialize_kprobe	/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/Kprobes/rust_kprobes	EXPORT_SYMBOL	
+0x00000000	cleanup_kprobe	/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/Kprobes/rust_kprobes	EXPORT_SYMBOL	

@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/modules.order := {   echo /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/my_lsm.o; :; } > /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/modules.order
