@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/sec_module.o := ld.lld -m elf_x86_64 -z noexecstack   -r -o /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/sec_module.o @/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/sec_module.mod 

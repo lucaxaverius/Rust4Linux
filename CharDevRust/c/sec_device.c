@@ -3,7 +3,7 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 
-#define DEVICE_NAME "sec_device"
+#define DEVICE_NAME "secrules"
 #define CLASS_NAME "sec_class"
 
 static int major_number;
@@ -31,7 +31,7 @@ int create_device(void) {
         return major_number;
     }
 
-    sec_class = class_create("secclass");
+    sec_class = class_create(CLASS_NAME);
     if (IS_ERR(sec_class)) {
         unregister_chrdev(major_number, DEVICE_NAME);
         printk(KERN_ALERT "Failed to register device class\n");

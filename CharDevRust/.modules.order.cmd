@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/modules.order := {   echo /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/sec_module.o; :; } > /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRust/modules.order
