@@ -14,6 +14,10 @@ static struct cdev sec_cdev;
 extern ssize_t rust_read(struct file *file, char *buffer, size_t len, loff_t *offset);
 extern ssize_t rust_write(struct file *file, const char *buffer, size_t len, loff_t *offset);
 
+int create_device(void);
+void remove_device(void);
+
+
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .read = rust_read,
@@ -27,7 +31,7 @@ int create_device(void) {
         return major_number;
     }
 
-    sec_class = class_create(THIS_MODULE, CLASS_NAME);
+    sec_class = class_create("secclass");
     if (IS_ERR(sec_class)) {
         unregister_chrdev(major_number, DEVICE_NAME);
         printk(KERN_ALERT "Failed to register device class\n");
