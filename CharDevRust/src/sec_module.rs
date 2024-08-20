@@ -15,8 +15,8 @@ extern "C" {
     fn remove_device();
 }
 
-static DEVICE_BUFFER: &[u8] = b"Hello from Rust!\n";
-static BUFFER_SIZE: AtomicUsize = AtomicUsize::new(DEVICE_BUFFER.len());
+static mut DEVICE_BUFFER: Vec<u8> = Vec::new();
+static BUFFER_SIZE: AtomicUsize = AtomicUsize::new(0);
 
 #[no_mangle]
 pub extern "C" fn rust_read(
@@ -42,7 +42,7 @@ pub extern "C" fn rust_read(
     //pr_info!("This should be bytes to read {}",len);
 
     // Data slice to copy to the user buffer
-    let data = &DEVICE_BUFFER[current_offset..current_offset + len];
+    let data = unsafe {&DEVICE_BUFFER[current_offset..current_offset + len]};
     //pr_info!("This should be the buffer DATA slice {:?}",data);
 
     if len > 0 {
@@ -79,22 +79,39 @@ pub extern "C" fn rust_write(
     count: usize,
     _offset: *mut u64,
 ) -> isize {
-    let mut buffer = Vec::new();
-    // Convert raw pointer to UserPtr (alias of usize)
     let user_ptr = user_buffer as usize;
     let user_slice = UserSlice::new(user_ptr, count);
 
     // Use UserSliceReader to read from user and write into kernel
     let reader = user_slice.reader(); 
-    
+    let mut buffer: Vec<u8> = Vec::with_capacity(count, GFP_KERNEL).expect("Failed to allocate buffer");
+
     match reader.read_all(&mut buffer, GFP_KERNEL) {
         Ok(_) => {
-            // Process the received data as needed
-            pr_info!("Received data length: {}\n", buffer.len());
+            unsafe {
+                // Append a newline if needed
+                if !buffer.ends_with(b"\n") {
+                    if let Err(e) = buffer.push(b'\n', GFP_KERNEL) {
+                        pr_err!("Failed to append newline: {:?}\n", e);
+                        return -EFAULT.to_errno() as isize;
+                    }
+                }
+
+                // Append the new data to the existing DEVICE_BUFFER
+                if let Err(e) = DEVICE_BUFFER.extend_from_slice(&buffer, GFP_KERNEL) {
+                    pr_err!("Failed to extend DEVICE_BUFFER: {:?}\n", e);
+                    return -EFAULT.to_errno() as isize;
+                }
+
+                // Update BUFFER_SIZE to reflect the new size of DEVICE_BUFFER
+                BUFFER_SIZE.store(DEVICE_BUFFER.len(), Ordering::Relaxed);
+            }
+
+            pr_info!("Appended data length: {}\n", buffer.len());
             buffer.len() as isize
         }
         Err(e) => {
-            pr_err!("Failed to read from user buffer: {:?}\n",e);
+            pr_err!("Failed to read from user buffer: {:?}\n", e);
             -EFAULT.to_errno() as isize
         }
     }
@@ -129,4 +146,13 @@ impl Drop for SecModule {
 
 fn init_rules() {
     // Initialize rule set or other necessary data structures
+    // Initialize the buffer with "Hello Rust"
+    let initial_data = b"Hello Rust\n";
+    unsafe {
+        if let Err(e) = DEVICE_BUFFER.extend_from_slice(initial_data, GFP_KERNEL) {
+            pr_err!("Failed to extend DEVICE_BUFFER: {:?}\n", e);
+        }        
+        BUFFER_SIZE.store(DEVICE_BUFFER.len(), Ordering::Relaxed);
+    }
+    pr_info!("Buffer initialized correctly");
 }
