@@ -1,7 +1,9 @@
 use kernel::prelude::*;
-use core::mem::{MaybeUninit, size_of};
+use core::mem::MaybeUninit;
 use kernel::uaccess::*;
 use kernel::ioctl::*;
+use kernel::sync::{new_mutex, Mutex};
+use core::ptr::{addr_of_mut};
 
 module! {
     type: SecModule,
@@ -16,105 +18,96 @@ extern "C" {
     fn remove_device();
 }
 
-//--------------- IOCTL DEFINITION ---------------
-const IOCTL_MAGIC: u32 = b's' as u32; // Unique magic number
-// Define IOCTL command numbers for add and remove operations
-const IOCTL_ADD_RULE: u32 = _IOW::<IoctlCommand>(IOCTL_MAGIC, 1);
-const IOCTL_REMOVE_RULE: u32 = _IOW::<IoctlCommand>(IOCTL_MAGIC, 2);
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct IoctlCommand {
-    command: [u8; 4],  // e.g., "add\0", "rmv\0"
-    rule: [u8; RULE_SIZE],   // The rule string, up to 256 bytes
-}
-
-impl IoctlCommand {
-    pub fn command_str(&self) -> &str {
-        core::str::from_utf8(&self.command).unwrap_or("")
-    }
-
-    pub fn rule_str(&self) -> &str {
-        core::str::from_utf8(&self.rule).unwrap_or("")
-    }
-}
-
-//--------------- RULES DEFINITION---------------
+//--------------- STRUCTURE DEFINITION---------------
 const MAX_USERS: usize = 1024;
 const MAX_RULES_PER_USER: usize = 10;
 const RULE_SIZE: usize = 256; // Max size of each rule string
 
-#[derive(Default)]
-struct UserRules {
-    rules: [Option<Vec<u8>>; MAX_RULES_PER_USER],
+#[derive(Clone)]
+struct Rule {
+    rule: Vec<u8>,
 }
 
-impl UserRules {
-    fn add_rule(&mut self, rule: Vec<u8>) -> Result<(), ()> {
-        for slot in &mut self.rules {
-            if slot.is_none() {
-                *slot = Some(rule);
-                return Ok(());
-            }
-        }
-        Err(())
-    }
-
-    fn remove_rule(&mut self, rule: &[u8]) {
-        self.rules.iter_mut().for_each(|r| {
-            if let Some(existing_rule) = r {
-                if existing_rule == rule {
-                    *r = None;
-                }
-            }
-        });
-    }
-
-    fn get_rules(&self) -> Vec<Vec<u8>> {
-        self.rules.iter().filter_map(|r| {
-            core::prelude::v1::Some(r.clone())
-        }).collect()
-    }
+#[derive(Clone)]
+struct UserRule {
+    uid: u32,
+    rules: Vec<Rule>,
 }
 
-
-//--------------- RULES BUFFER DEFINITION ---------------
-
+#[pin_data]
 struct UserRuleStore {
-    store: [UserRules; MAX_USERS],
+    #[pin]
+    store: Mutex<Vec<UserRule>>,
 }
 
 impl UserRuleStore {
-    fn new() -> Self {
-        UserRuleStore {
-            store: Default::default(),
-        }
+    fn new() -> impl PinInit<Self> {
+        pin_init!(Self {
+            store <- new_mutex!(Vec::new()),
+        })
     }
 
-    fn add_rule(&mut self, user_id: usize, rule: Vec<u8>) -> Result<(), ()> {
-        if user_id < MAX_USERS {
-            self.store[user_id].add_rule(rule)
+    fn add_rule(&self, uid: u32, new_rule: Vec<u8>) -> Result<(), Error> {
+        let mut store = self.store.lock();
+
+        // Find the user with the given UID
+        if let Some(user_rule) = store.iter_mut().find(|ur| ur.uid == uid) {
+            user_rule.rules.push(Rule { rule: new_rule }, GFP_KERNEL);
         } else {
-            Err(())
+          // User does not exist, so create a new UserRule with the provided rule
+          // Create an empty vector
+          let mut rules = Vec::new();  
+          // Add the new rule to the vector
+          rules.push(Rule { rule: new_rule }, GFP_KERNEL);  
+
+          store.push(UserRule {
+              uid,
+              rules,
+          }, GFP_KERNEL);
         }
+
+        Ok(())
     }
 
-    fn remove_rule(&mut self, user_id: usize, rule: &[u8]) {
-        if user_id < MAX_USERS {
-            self.store[user_id].remove_rule(rule);
+    fn remove_rule(&self, uid: u32, rule_to_remove: Vec<u8>) -> Result<(), Error> {
+        let mut store = self.store.lock();
+
+        if let Some(user_rule) = store.iter_mut().find(|ur| ur.uid == uid) {
+            user_rule.rules.retain(|r| r.rule != rule_to_remove);
+
+            // Remove the user if there are no more rules
+            if user_rule.rules.is_empty() {
+                store.retain(|ur| ur.uid != uid);
+            }
         }
+
+        Ok(())
     }
 
-    fn get_rules(&self, user_id: usize) -> Vec<Vec<u8>> {
-        if user_id < MAX_USERS {
-            self.store[user_id].get_rules()
-        } else {
-            Vec::new()
-        }
+    fn get_rules(&self, uid: u32) -> Option<Vec<Rule>> {
+        let store = self.store.lock();
+        store
+            .iter()
+            .find(|ur| ur.uid == uid)
+            .map(|user_rule| user_rule.rules.clone())
     }
 }
+static mut USER_RULE_STORE: Option<Pin<Box<UserRuleStore>>> = None;
 
-static mut USER_RULE_STORE: UserRuleStore = UserRuleStore::new();
+//--------------- IOCTL DEFINITION ---------------
+const IOCTL_MAGIC: u32 = b's' as u32; // Unique magic number
+// Define IOCTL command numbers for add and remove operations
+const IOCTL_ADD_RULE: u32 = _IOW::<IoctlArgument>(IOCTL_MAGIC, 1);
+const IOCTL_REMOVE_RULE: u32 = _IOW::<IoctlArgument>(IOCTL_MAGIC, 2);
+
+#[repr(C)]
+struct IoctlArgument {
+    uid: u32,        // User ID
+    rule: [u8; 256], // Rule string
+}
+
+
+//--------------- IOCTL HANDLERS ---------------
 
 #[no_mangle]
 pub extern "C" fn rust_ioctl(
@@ -122,59 +115,66 @@ pub extern "C" fn rust_ioctl(
     cmd: u32,
     arg: *mut core::ffi::c_void,
 ) -> isize {
-    match cmd {
-        IOCTL_ADD_RULE | IOCTL_REMOVE_RULE => {
-            if !arg.is_null() {
-                const IOCTL_COMMAND_SIZE: usize = size_of::<IoctlCommand>();
+    if arg.is_null() {
+        pr_err!("IOCTL Called without argument\n");
+        return -EINVAL.to_errno() as isize;
+    }
 
-                let user_slice = UserSlice::new(arg as usize, IOCTL_COMMAND_SIZE);
-                let mut reader = user_slice.reader();
-                
-                let mut buffer = [MaybeUninit::uninit(); IOCTL_COMMAND_SIZE];
-                
-                if let Err(e) = reader.read_raw(&mut buffer) {
-                    pr_err!("Failed to read from user space: {:?}\n", e);
-                    return -EFAULT.to_errno() as isize;
-                }
-                
-                let ioctl_command: IoctlCommand = unsafe { core::ptr::read(buffer.as_ptr() as *const IoctlCommand) };
+    // Safely copy the IoctlArgument from user space
+    let ioctl_arg = unsafe {
+        let mut buffer: [MaybeUninit<u8>; core::mem::size_of::<IoctlArgument>()] = MaybeUninit::uninit().assume_init();
+        let user_ptr = arg as *const u8;
+        let user_slice = UserSlice::new(user_ptr as usize, buffer.len());
+        let mut reader = user_slice.reader();
 
-                match cmd {
-                    IOCTL_ADD_RULE => handle_add_rule(&ioctl_command),
-                    IOCTL_REMOVE_RULE => handle_remove_rule(&ioctl_command),
-                    _ => -EINVAL.to_errno() as isize,
-                }
-            } else {
-                -EINVAL.to_errno() as isize
+        if reader.read_raw(&mut buffer).is_err() {
+            pr_err!("Failed to read from user space\n");
+            return -EFAULT.to_errno() as isize;
+        }
+
+        core::ptr::read(buffer.as_ptr() as *const IoctlArgument)
+    };
+
+    let uid = ioctl_arg.uid;
+    let rule_str = ioctl_arg
+        .rule
+        .iter()
+        .take_while(|&&c| c != 0)
+        .cloned()
+        .collect::<Vec<u8>>();
+
+    // Safely access the USER_RULE_STORE
+    let user_rule_store = unsafe {
+        // Create a mut raw pointer to RULE_STORE
+        let store_ptr = addr_of_mut!(USER_RULE_STORE);
+        match (*store_ptr).as_ref() {
+            Some(store) => store,
+            None => {
+                pr_err!("USER_RULE_STORE not initialized\n");
+                return -EINVAL.to_errno() as isize;
             }
         }
-        _ => -EINVAL.to_errno() as isize,
-    }
-}
+    };
 
-fn handle_add_rule(command: &IoctlCommand) -> isize {
-    let user_id = 0; // Placeholder for user_id, replace with actual logic to determine user_id
-    let rule = command.rule_str().to_string();
-
-    unsafe {
-        if let Err(_) = USER_RULE_STORE.add_rule(user_id as usize, rule.into_bytes()) {
-            return -ENOMEM.to_errno() as isize;
+    match cmd {
+        IOCTL_ADD_RULE => {
+            if let Err(e) = user_rule_store.add_rule(uid, rule_str) {
+                pr_err!("Failed to add rule: {:?}\n", e);
+                return -EFAULT.to_errno() as isize;
+            }
+        }
+        IOCTL_REMOVE_RULE => {
+            if let Err(e) = user_rule_store.remove_rule(uid, rule_str) {
+                pr_err!("Failed to remove rule: {:?}\n", e);
+                return -EFAULT.to_errno() as isize;
+            }
+        }
+        _ => {
+            pr_err!("Unknown command\n");
+            return -EINVAL.to_errno() as isize;
         }
     }
 
-    pr_info!("Added rule for user_id {}: {}\n", user_id, rule);
-    0
-}
-
-fn handle_remove_rule(command: &IoctlCommand) -> isize {
-    let user_id = 0; // Placeholder for user_id, replace with actual logic to determine user_id
-    let rule = command.rule_str();
-
-    unsafe {
-        USER_RULE_STORE.remove_rule(user_id as usize, rule.as_bytes());
-    }
-
-    pr_info!("Removed rule for user_id {}: {}\n", user_id, rule);
     0
 }
 
@@ -182,16 +182,20 @@ struct SecModule;
 
 impl kernel::Module for SecModule {
     fn init(_module: &'static ThisModule) -> Result<Self> {
-        // Initialize your rule set
-        init_rules();
-
+        // Initialize the rule store
         unsafe {
-            if create_device() < 0 {
-                return Err(EINVAL);
-            }
+            // Use of mutable static in unsafe, the initialization is done by one single thread. 
+            // It will not cause any problem.
+            USER_RULE_STORE = match Box::pin_init(UserRuleStore::new(), GFP_KERNEL) {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    pr_err!("Failed to initialize USER_RULE_STORE: {:?}\n", e);
+                    return Err(e);
+                }
+            };
         }
-
-        pr_info!("Security module loaded\n");
+        init_rules();
+        pr_info!("SecModule initialized\n");
         Ok(SecModule)
     }
 }
@@ -210,14 +214,5 @@ impl Drop for SecModule {
 fn init_rules() {
     const USER_ID: usize = 1001;
     const INITIAL_RULE: &str = "Hello Rust";
-
-    let rule_bytes = INITIAL_RULE.as_bytes().to_vec();
-
-    unsafe {
-        if let Err(_) = USER_RULE_STORE.add_rule(USER_ID, rule_bytes) {
-            pr_err!("Failed to add initial rule to USER_RULE_STORE\n");
-        }
-    }
-
     pr_info!("Initialized rules with default rule for user_id {}: {}\n", USER_ID, INITIAL_RULE);
 }
