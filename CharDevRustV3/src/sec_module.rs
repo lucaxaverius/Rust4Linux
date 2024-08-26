@@ -5,6 +5,7 @@ use kernel::ioctl::*;
 use kernel::sync::{new_mutex, Mutex};
 use core::ptr::{addr_of_mut};
 
+
 module! {
     type: SecModule,
     name: "sec_module",
@@ -268,6 +269,82 @@ pub extern "C" fn rust_ioctl(
     }
 
     0
+}
+
+//--------------- READ ---------------
+
+#[no_mangle]
+pub extern "C" fn rust_read(
+    _file: *mut core::ffi::c_void,
+    user_buffer: *mut u8,
+    count: usize,
+    offset: *mut u64,
+) -> isize {
+    // Convert the offset to usize
+    let current_offset = unsafe { *offset as usize };
+
+    // Get all rules
+    let rules = match USER_RULE_STORE.expect("Stor isn't initialized yet").get_all_rules() {
+        Ok(rules) => rules,
+        Err(e) => {
+            pr_err!("Failed to get all rules: {:?}\n", e);
+            return -EFAULT.to_errno() as isize;
+        }
+    };
+
+    // Generate the output dynamically using Vec<u8>
+    let mut output = Vec::new();
+    for user_rule in rules {
+        // Manually append the UID line
+        output.extend_from_slice(b"---- UID: ",GFP_KERNEL);
+        output.extend_from_slice(user_rule.uid, GFP_KERNEL);
+        output.extend_from_slice(b" ----\n",GFP_KERNEL);
+
+        // Append each rule
+        for (i, rule) in user_rule.rules.iter().enumerate() {
+            //output.extend_from_slice((i + 1).to_string().as_bytes(),GFP_KERNEL);
+            output.extend_from_slice(b") ",GFP_KERNEL);
+            // Maybe this can be a PROBLEM!
+            output.extend_from_slice(&rule.rule,GFP_KERNEL);
+            output.extend_from_slice(b"\n",GFP_KERNEL);
+        }
+        output.extend_from_slice(b" ---- ---- ----\n",GFP_KERNEL);
+    }
+
+    // Check if the offset is beyond the buffer
+    if current_offset >= output.len() {
+        return 0; // EOF
+    }
+
+    // Determine the number of bytes to read
+    let len = core::cmp::min(count, output.len() - current_offset);
+
+    // Data slice to copy to the user buffer
+    let data = &output[current_offset..current_offset + len];
+
+    if len > 0 {
+        // Convert raw pointer to UserPtr (alias of usize)
+        let user_ptr = user_buffer as usize;
+
+        let user_slice = UserSlice::new(user_ptr, len);
+        // Use UserSliceWriter to write data from device to userspace
+        let mut writer = user_slice.writer(); 
+        
+        match writer.write_slice(data) {
+            Ok(_) => {
+                // Update the offset in the caller's memory
+                let new_offset = current_offset + len;
+                unsafe { *offset = new_offset as u64 };
+                len as isize
+            }
+            Err(e) => {
+                pr_err!("Failed to write to user buffer: {:?}\n", e);
+                -EFAULT.to_errno() as isize
+            } 
+        }
+    } else {
+        0 // EOF
+    }
 }
 
 struct SecModule;
