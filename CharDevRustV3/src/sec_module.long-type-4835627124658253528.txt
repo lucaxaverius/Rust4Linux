@@ -1,1 +1,0 @@
-FilterMap<core::slice::Iter<'_, Option<kernel::prelude::Vec<u8>>>, {closure@/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV3/src/sec_module.rs:76:38: 76:41}>

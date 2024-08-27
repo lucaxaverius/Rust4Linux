@@ -1,1 +1,0 @@
-MaybeUninit<Lock<kernel::prelude::Vec<(u32, kernel::prelude::Vec<String>)>, MutexBackend>>

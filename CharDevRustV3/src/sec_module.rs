@@ -5,7 +5,6 @@ use kernel::ioctl::*;
 use kernel::sync::{new_mutex, Mutex};
 use core::ptr::{addr_of_mut};
 
-
 module! {
     type: SecModule,
     name: "sec_module",
@@ -27,6 +26,15 @@ struct Rule {
 }
 
 impl Rule {
+    // Takes in input a string and initialize the rule
+    fn new(rule_data: Vec<u8>) -> Result<Self, Error>{
+        //TODO: Validate the input 
+        if rule_data.len() > RULE_SIZE{
+            return Err(EINVAL);
+        }
+        Ok (Self { rule: rule_data,
+        })
+    }
     // Manually implement cloning by creating a new Vec<u8> with the same contents
     fn clone(&self) -> Result<Self, Error> {
         let mut new_vec = Vec::with_capacity(self.rule.len(),GFP_KERNEL).expect("Rule clone failed");
@@ -284,11 +292,24 @@ pub extern "C" fn rust_read(
     let current_offset = unsafe { *offset as usize };
 
     // Get all rules
-    let rules = match USER_RULE_STORE.expect("Stor isn't initialized yet").get_all_rules() {
-        Ok(rules) => rules,
-        Err(e) => {
-            pr_err!("Failed to get all rules: {:?}\n", e);
-            return -EFAULT.to_errno() as isize;
+    // Safely access the global USER_RULE_STORE
+    let rules = unsafe {
+        // Safely access the global USER_RULE_STORE
+        let store_ptr = addr_of_mut!(USER_RULE_STORE);
+        match (*store_ptr).as_ref(){
+            Some(store) => {
+                match store.get_all_rules() {
+                    Ok(rules) => rules, // Borrow the rules list
+                    Err(e) => {
+                        pr_err!("Failed to get all rules: {:?}", e);
+                        return -EFAULT.to_errno() as isize;
+                    }
+                }
+            }
+            None => {
+                pr_err!("User rule store is not initialized.");
+                return -EFAULT.to_errno() as isize;
+            }
         }
     };
 
@@ -296,19 +317,42 @@ pub extern "C" fn rust_read(
     let mut output = Vec::new();
     for user_rule in rules {
         // Manually append the UID line
-        output.extend_from_slice(b"---- UID: ",GFP_KERNEL);
-        output.extend_from_slice(user_rule.uid, GFP_KERNEL);
-        output.extend_from_slice(b" ----\n",GFP_KERNEL);
+        if let Err(e) = output.extend_from_slice(b"---- UID: ",GFP_KERNEL){
+            pr_err!("Failed to construct output str {:?}\n",e);
+            return -ENOMEM.to_errno() as isize;
+        }
+
+        if let Err(e) = append_u32_to_vec(&mut output, user_rule.uid){
+            pr_err!("Failed to append u32 to output str {:?}\n",e);
+            return -ENOMEM.to_errno() as isize;
+        }
+
+        if let Err(e) = output.extend_from_slice(b" ----\n",GFP_KERNEL){
+            pr_err!("Failed to construct output str {:?}\n",e);
+            return -ENOMEM.to_errno() as isize;
+        }
 
         // Append each rule
         for (i, rule) in user_rule.rules.iter().enumerate() {
-            //output.extend_from_slice((i + 1).to_string().as_bytes(),GFP_KERNEL);
-            output.extend_from_slice(b") ",GFP_KERNEL);
+            if let Err(e) = append_u32_to_vec(&mut output, (i + 1) as u32){
+                pr_err!("Failed to append u32 to output str {:?}\n",e);
+                return -ENOMEM.to_errno() as isize;
+            }
+            
             // Maybe this can be a PROBLEM!
-            output.extend_from_slice(&rule.rule,GFP_KERNEL);
-            output.extend_from_slice(b"\n",GFP_KERNEL);
+            if let Err(e) = output.extend_from_slice(&rule.rule,GFP_KERNEL){
+                pr_err!("Failed to construct output str {:?}\n",e);
+                return -ENOMEM.to_errno() as isize;
+            }
+            if let Err(e) = output.extend_from_slice(b"\n",GFP_KERNEL){
+                pr_err!("Failed to construct output str {:?}\n",e);
+                return -ENOMEM.to_errno() as isize;
+            }
         }
-        output.extend_from_slice(b" ---- ---- ----\n",GFP_KERNEL);
+        if let Err(e) = output.extend_from_slice(b" ---- ---- ----\n",GFP_KERNEL){
+            pr_err!("Failed to construct output str {:?}\n",e);
+            return -ENOMEM.to_errno() as isize;
+        }
     }
 
     // Check if the offset is beyond the buffer
@@ -345,6 +389,29 @@ pub extern "C" fn rust_read(
     } else {
         0 // EOF
     }
+}
+
+fn append_u32_to_vec(buffer: &mut Vec<u8>, value: u32) -> Result<(), Error>{
+    let mut num = value;
+    let mut digits = [0u8; 10]; // u32 max value is 4294967295, which is 10 digits
+    let mut i = digits.len();
+
+    // Convert the number to ASCII digits in reverse order
+    loop {
+        i -= 1;
+        digits[i] = b'0' + (num % 10) as u8;
+        num /= 10;
+        if num == 0 {
+            break;
+        }
+    }
+
+    // Append the digits to the buffer
+    if let Err(e) = buffer.extend_from_slice(&digits[i..], GFP_KERNEL){
+        pr_err!("Failed to convert digits to char {:?}\n",e);
+        return Err(ENOMEM);
+    }
+    Ok(())
 }
 
 struct SecModule;
@@ -386,7 +453,30 @@ impl Drop for SecModule {
 
 
 fn init_rules() {
-    const USER_ID: usize = 1001;
-    const INITIAL_RULE: &str = "Hello Rust";
-    pr_info!("Initialized rules with default rule for user_id {}: {}\n", USER_ID, INITIAL_RULE);
+    let initial_uid: u32 = 1001;
+    let mut string = Vec::new();
+    if let Err(e) = string.extend_from_slice(b"Hello Rust :)",GFP_KERNEL){
+        pr_err!("Failed to construct output str {:?}\n",e);
+        return;
+    }
+
+    let initial_rule = Rule::new(string).expect("Problem with rule creation");
+  
+    // Safely access the USER_RULE_STORE
+    let user_rule_store = unsafe {
+        // Create a mut raw pointer to RULE_STORE
+        let store_ptr = addr_of_mut!(USER_RULE_STORE);
+        match (*store_ptr).as_ref() {
+            Some(store) => store,
+            None => {
+                pr_err!("USER_RULE_STORE not initialized\n");
+                return ;
+            }
+        }
+    };
+    if let Err(e) = user_rule_store.add_rule(initial_uid, initial_rule.clone().expect("Problem with rule cloning").rule) {
+        pr_err!("Failed to add initial rule: {:?}\n", e);
+        return;
+    }   
+    pr_info!("Initialized rules with default rule for user_id {}: {:?}\n", initial_uid, initial_rule);
 }

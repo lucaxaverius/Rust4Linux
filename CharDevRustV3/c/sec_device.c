@@ -22,7 +22,6 @@ void remove_device(void);
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .read = rust_read,
-    .write = rust_write,
     .unlocked_ioctl = rust_ioctl,  // Register the ioctl handler
 };
 
