@@ -83,6 +83,7 @@ impl UserRuleStore {
 
     fn add_rule(&self, uid: u32, new_rule: CString) -> Result<(), Error> {
         let mut store = self.store.lock();
+        // pr_info!("The rule string is: {}",new_rule.to_str().expect("Can't display the string"));
 
         // Find the user with the given UID
         if let Some(user_rule) = store.iter_mut().find(|ur| ur.uid == uid) {
@@ -188,18 +189,24 @@ impl IoctlArgument {
         // Find the length of the rule by identifying the first NUL byte
         let rule_len = self.rule.iter().position(|&byte| byte == 0).unwrap_or(RULE_SIZE);
 
-        pr_info!("The corresponding rule len is: {}",rule_len);
+        //pr_info!("The corresponding rule len is: {}",rule_len);
             
-        // Create a new byte array with size rule_len + 1 (for the NUL terminator)
-        let mut valid_bytes = [u8; rule_len + 1]; // Initialize with zeroes
-        valid_bytes[..rule_len].copy_from_slice(&self.rule[..rule_len]); // Copy the relevant bytes
- 
+       // Allocate a new vector with enough space for the rule and a null terminator
+       let mut rule_with_null = Vec::with_capacity(rule_len + 1, GFP_KERNEL).expect("Impossible to alloc vector");
+
+       // Copy the original rule data into the vector
+       for &byte in &self.rule[..rule_len] {
+           rule_with_null.push(byte, GFP_KERNEL);
+       }
+
+       // Ensure the vector is null-terminated
+       rule_with_null.push(0, GFP_KERNEL);
 
         // Attempt to create a CStr from the bytes array
-        let cstr = match CStr::from_bytes_with_nul(valid_bytes) {
+        let cstr = match CStr::from_bytes_with_nul(&rule_with_null) {
             Ok(cstr) => cstr,
             Err(e) => {
-                pr_err!("Failed to create CStr from bytes: {:?} \nThe error is: {:?}", valid_bytes,e);
+                pr_err!("Failed to create CStr from bytes: {:?} \nThe error is: {:?}", rule_with_null,e);
                 return Err(EINVAL); // Return EINVAL on error
             }
         };
@@ -269,6 +276,8 @@ pub extern "C" fn rust_ioctl(
             return -EINVAL.to_errno() as isize;
         }
     };
+    
+    //pr_info!("The rule string is: {}",rule_str.to_str().expect("Can't display the string"));
 
     // Safely access the USER_RULE_STORE
     let user_rule_store = unsafe {
@@ -338,6 +347,7 @@ pub extern "C" fn rust_read(
     let mut output = Vec::new();
 
     for user_rule in rules {
+        
         // Append the UID line using CString::try_from_fmt
         let uid_str = match CString::try_from_fmt(format_args!("---- UID: {} ----\n", user_rule.uid)) {
             Ok(cstring) => cstring,
@@ -346,13 +356,14 @@ pub extern "C" fn rust_read(
                 return -ENOMEM.to_errno() as isize;
             }
         };
-        if let Err(e) = output.extend_from_slice(uid_str.as_bytes_with_nul(), GFP_KERNEL) {
+        if let Err(e) = output.extend_from_slice(uid_str.as_bytes(), GFP_KERNEL) {
             pr_err!("Failed to append UID string: {:?}\n", e);
             return -ENOMEM.to_errno() as isize;
         }
 
         // Append each rule
         for (i, rule) in user_rule.rules.iter().enumerate() {
+            
             // Append the rule number using CString::try_from_fmt
             let rule_num_str = match CString::try_from_fmt(format_args!("Rule {}: ", i + 1)) {
                 Ok(cstring) => cstring,
@@ -361,17 +372,19 @@ pub extern "C" fn rust_read(
                     return -ENOMEM.to_errno() as isize;
                 }
             };
-            if let Err(e) = output.extend_from_slice(rule_num_str.as_bytes_with_nul(), GFP_KERNEL) {
+            if let Err(e) = output.extend_from_slice(rule_num_str.as_bytes(), GFP_KERNEL) {
                 pr_err!("Failed to append rule number string: {:?}\n", e);
                 return -ENOMEM.to_errno() as isize;
             }
 
+            //pr_info!("The rule string is: {}",rule.rule.to_str().expect("Can't display the string"));
+
             // Append the rule itself
-            if let Err(e) = output.extend_from_slice(rule.rule.as_bytes_with_nul(), GFP_KERNEL) {
+            if let Err(e) = output.extend_from_slice(rule.rule.as_bytes(), GFP_KERNEL) {
                 pr_err!("Failed to append rule string: {:?}\n", e);
                 return -ENOMEM.to_errno() as isize;
             }
-
+            
             // Append a newline
             if let Err(e) = output.extend_from_slice(b"\n", GFP_KERNEL) {
                 pr_err!("Failed to append newline: {:?}\n", e);
@@ -387,7 +400,7 @@ pub extern "C" fn rust_read(
                 return -ENOMEM.to_errno() as isize;
             }
         };
-        if let Err(e) = output.extend_from_slice(footer_str.as_bytes_with_nul(), GFP_KERNEL) {
+        if let Err(e) = output.extend_from_slice(footer_str.as_bytes(), GFP_KERNEL) {
             pr_err!("Failed to append footer string: {:?}\n", e);
             return -ENOMEM.to_errno() as isize;
         }
