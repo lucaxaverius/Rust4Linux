@@ -182,20 +182,45 @@ struct IoctlArgument {
 }
 
 // Methods for IoctlArgument
-impl IoctlArgument {
+impl IoctlArgument {    
     // Helper function to create a CString from the rule field in IoctlArgument
     fn create_cstring_from_rule(&self) -> Result<CString, Error> {
-        
-       // Attempt to create a CStr from the bytes array
-       let cstr = CStr::from_bytes_with_nul(&self.rule)
-       .map_err(|_| EINVAL)?; // Handle error if the byte slice isn't valid
+        // Find the length of the rule by identifying the first NUL byte
+        let rule_len = self.rule.iter().position(|&byte| byte == 0).unwrap_or(RULE_SIZE);
+
+        pr_info!("The corresponding rule len is: {}",rule_len);
+            
+        // Create a new byte array with size rule_len + 1 (for the NUL terminator)
+        let mut valid_bytes = [u8; rule_len + 1]; // Initialize with zeroes
+        valid_bytes[..rule_len].copy_from_slice(&self.rule[..rule_len]); // Copy the relevant bytes
+ 
+
+        // Attempt to create a CStr from the bytes array
+        let cstr = match CStr::from_bytes_with_nul(valid_bytes) {
+            Ok(cstr) => cstr,
+            Err(e) => {
+                pr_err!("Failed to create CStr from bytes: {:?} \nThe error is: {:?}", valid_bytes,e);
+                return Err(EINVAL); // Return EINVAL on error
+            }
+        };
 
         // Convert CStr to &str; handle UTF-8 validation
-        let rule_str = cstr.to_str()
-       .map_err(|_| EINVAL)?; // Handle UTF-8 conversion error
+        let rule_str = match cstr.to_str() {
+            Ok(s) => s,
+            Err(e) => {
+                pr_err!("Failed to convert CStr to str: {:?}", e);
+                return Err(EINVAL); // Return EINVAL on UTF-8 error
+            }
+        };
 
-        // Finally create CString 
-        CString::try_from_fmt(fmt!("{}", rule_str))
+        // Create CString using try_from_fmt with formatting
+        match CString::try_from_fmt(fmt!("{}", rule_str)) {
+            Ok(cstring) => Ok(cstring),
+            Err(e) => {
+                pr_err!("Failed to create CString using try_from_fmt: {:?}", e);
+                Err(EINVAL) // Return EINVAL on CString creation error
+            }
+        }
     }
 }
 
