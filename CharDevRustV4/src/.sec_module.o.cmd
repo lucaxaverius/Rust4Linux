@@ -3,6 +3,8 @@ savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/sec_
 source_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/sec_module.o := /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/sec_module.rs
 
 deps_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/sec_module.o := \
+  /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/structures/mod.rs \
+  /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/CharDevRustV4/src/structures/constant.rs \
   /home/rustxave/src/kernel/linux/rust/libcore.rmeta \
   /home/rustxave/src/kernel/linux/rust/libcompiler_builtins.rmeta \
   /home/rustxave/src/kernel/linux/rust/libkernel.rmeta \
