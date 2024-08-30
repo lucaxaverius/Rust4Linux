@@ -25,9 +25,11 @@ struct IoctlArgument {
 
 
 int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg);
-void ioctl_add_rule(u32 uid, const char *rule);
-void ioctl_remove_rule(u32 uid, const char *rule);
+void add_rule(u32 uid, const char *rule);
+void remove_rule(u32 uid, const char *rule);
+void print_man();
 void print_rules();
+int get_command(const char* command);
 
 // Function to sanitize input and create IoctlArgument
 int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg) {
@@ -59,7 +61,17 @@ int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg) {
     return 0; // Success
 }
 
-void ioctl_add_rule(u32 uid, const char *rule) {
+// Function to map command strings to integer values
+int get_command(const char *command) {
+    if (strcmp(command, "print") == 0) return 1;
+    if (strcmp(command, "add") == 0) return 2;
+    if (strcmp(command, "rmv") == 0) return 3;
+    if (strcmp(command, "man") == 0) return 4;
+    return 0; // Unknown command
+}
+
+// Function to add new rule
+void add_rule(u32 uid, const char *rule) {
     int fd = open(DEVICE_PATH, O_WRONLY);
     if (fd < 0) {
         perror("Failed to open the device");
@@ -80,7 +92,8 @@ void ioctl_add_rule(u32 uid, const char *rule) {
     close(fd);
 }
 
-void ioctl_remove_rule(u32 uid, const char *rule) {
+// Function to remove a rule from a specific user
+void remove_rule(u32 uid, const char *rule) {
     int fd = open(DEVICE_PATH, O_WRONLY);
     if (fd < 0) {
         perror("Failed to open the device");
@@ -101,6 +114,7 @@ void ioctl_remove_rule(u32 uid, const char *rule) {
     close(fd);
 }
 
+// Function to retrieve all the rules and the will print that
 void print_rules() {
     int fd = open(DEVICE_PATH, O_RDONLY);
     if (fd < 0) {
@@ -119,30 +133,47 @@ void print_rules() {
     close(fd);
 }
 
+// Helper function to print the manual
+void print_man() {
+    printf("Command Manual:\n");
+    printf("1. print - Print all current rules.\n");
+    printf("   Usage: sec_tool print\n");
+    printf("2. add - Add a rule for a specific user ID (uid).\n");
+    printf("   Usage: sec_tool add <uid> <rule>\n");
+    printf("3. rmv - Remove a rule for a specific user ID (uid).\n");
+    printf("   Usage: sec_tool rmv <uid> <rule>\n");
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <print|ioctl_add|ioctl_remove> [uid] [rule]\n", argv[0]);
+        printf("Usage: %s <print|add|rmv|man> [uid] [rule]\n", argv[0]);
         return -1;
     }
 
-    if (strcmp(argv[1], "print") == 0) {
-        print_rules();
-    } else if (strcmp(argv[1], "ioctl_add") == 0) {
-        if (argc != 4) {
-            printf("Usage: %s ioctl_add <uid> <rule>\n", argv[0]);
+    switch (get_command(argv[1])) {
+        case 1: // print
+            print_rules();
+            break;
+        case 2: // add
+            if (argc != 4) {
+                printf("Usage: %s add <uid> <rule>\n", argv[0]);
+                return -1;
+            }
+            add_rule((u32)atoi(argv[2]), argv[3]);
+            break;
+        case 3: // rmv
+            if (argc != 4) {
+                printf("Usage: %s rmv <uid> <rule>\n", argv[0]);
+                return -1;
+            }
+            remove_rule((u32)atoi(argv[2]), argv[3]);
+            break;
+        case 4: // man
+            print_man();
+            break;
+        default:
+            printf("Unknown command %s\n", argv[1]);
             return -1;
-        }
-        u32 uid = (u32)atoi(argv[2]);
-        ioctl_add_rule(uid, argv[3]);
-    } else if (strcmp(argv[1], "ioctl_remove") == 0) {
-        if (argc != 4) {
-            printf("Usage: %s ioctl_remove <uid> <rule>\n", argv[0]);
-            return -1;
-        }
-        u32 uid = (u32)atoi(argv[2]);
-        ioctl_remove_rule(uid, argv[3]);
-    } else {
-        printf("Unknown command %s\n", argv[1]);
     }
 
     return 0;

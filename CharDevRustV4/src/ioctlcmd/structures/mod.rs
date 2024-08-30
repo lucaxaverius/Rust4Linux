@@ -5,17 +5,18 @@ use kernel::{str::CString, fmt};
 use kernel::prelude::*;
 use kernel::sync::{new_mutex, Mutex};
 
-mod constant;
-use crate::structures::constant::RULE_SIZE;
+pub(crate) mod constant;
+
+use crate::ioctlcmd::structures::constant::{RULE_SIZE};
 
 #[derive(Debug)]
-pub struct Rule {
-    pub rule: CString,
+pub(crate) struct Rule {
+    pub(crate) rule: CString,
 }
 
 impl Rule {
     // Takes in input a string and initialize the rule
-    pub fn new(rule_data: CString) -> Result<Self, Error> {
+    pub(crate) fn new(rule_data: CString) -> Result<Self, Error> {
         if rule_data.as_bytes().len() > RULE_SIZE {
             return Err(EINVAL);
         }
@@ -23,7 +24,7 @@ impl Rule {
     }
 
     // Manually implement cloning by creating a new CString with the same contents
-    pub fn clone(&self) -> Result<Self, Error> {
+    pub(crate) fn clone(&self) -> Result<Self, Error> {
         Ok(Rule {
             rule: CString::try_from_fmt(fmt!("{}", self.rule.to_str().expect("UTF8 error during Clone"))).unwrap(),
         })
@@ -31,9 +32,9 @@ impl Rule {
 }
 
 #[derive(Debug)]
-pub struct UserRule {
-    uid: u32,
-    rules: Vec<Rule>,
+pub(crate) struct UserRule {
+    pub(crate) uid: u32,
+    pub(crate) rules: Vec<Rule>,
 }
 
 impl UserRule {
@@ -61,13 +62,13 @@ pub struct UserRuleStore {
 }
 
 impl UserRuleStore {
-    pub fn new() -> impl PinInit<Self> {
+    pub(crate) fn new() -> impl PinInit<Self> {
         pin_init!(Self {
             store <- new_mutex!(Vec::new()),
         })
     }
 
-    pub fn add_rule(&self, uid: u32, new_rule: CString) -> Result<(), Error> {
+    pub(crate) fn add_rule(&self, uid: u32, new_rule: CString) -> Result<(), Error> {
         let mut store = self.store.lock();
         // pr_info!("The rule string is: {}",new_rule.to_str().expect("Can't display the string"));
 
@@ -88,7 +89,7 @@ impl UserRuleStore {
         Ok(())
     }
 
-    fn remove_rule(&self, uid: u32, rule_to_remove: CString) -> Result<(), Error> {
+    pub(crate) fn remove_rule(&self, uid: u32, rule_to_remove: CString) -> Result<(), Error> {
         let mut store = self.store.lock();
 
         if let Some(user_rule) = store.iter_mut().find(|ur| ur.uid == uid) {
@@ -127,7 +128,7 @@ impl UserRuleStore {
     }
 
     /// Retrieves all the rules in the store.
-    fn get_all_rules(&self) -> Result<Vec<UserRule>, kernel::error::Error> {
+    pub(crate) fn get_all_rules(&self) -> Result<Vec<UserRule>, kernel::error::Error> {
         let store = self.store.lock();
 
         // Create a new vector to store the cloned UserRules

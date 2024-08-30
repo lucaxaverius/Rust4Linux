@@ -3,10 +3,10 @@
 use kernel::prelude::*;
 use kernel::{str::CString, fmt};
 use core::ptr::{addr_of_mut};
-mod structures;
-mod ioctl;
-use crate::structures::{UserRuleStore,Rule};
-use crate::ioctl::{rust_ioctl, rust_read};
+mod ioctlcmd;
+
+use crate::ioctlcmd::{rust_ioctl, rust_read};
+use crate::ioctlcmd::structures::{UserRuleStore,Rule};
 
 module! {
     type: SecModule,
@@ -22,7 +22,8 @@ extern "C" {
 }
 
 
-static mut USER_RULE_STORE: Option<Pin<Box<UserRuleStore>>> = None;
+#[no_mangle]
+pub(crate) static mut USER_RULE_STORE: Option<Pin<Box<UserRuleStore>>> = None;
 
 struct SecModule;
 

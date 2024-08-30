@@ -1,3 +1,4 @@
+// ioctl.rs
 //--------------- IOCTL DEFINITION ---------------
 // This file contains everything about the IOCTL: constant, structure and the various handlers.
 
@@ -8,10 +9,14 @@ use kernel::{str::CString, fmt};
 use kernel::prelude::*;
 use core::mem::MaybeUninit;
 
-mod constant;
-mod structures;
-use crate::ioctl::constant::{RULE_SIZE,RULE_BUFFER_SIZE};
+pub(crate) mod structures;
+use crate::ioctlcmd::structures::constant::{RULE_SIZE,RULE_BUFFER_SIZE};
+use crate::ioctlcmd::structures::UserRuleStore;
 
+// Declare the external variable
+extern "Rust" {
+    pub(crate) static mut USER_RULE_STORE: Option<Pin<Box<UserRuleStore>>>;
+}
 
 const IOCTL_MAGIC: u32 = b's' as u32; // Unique magic number
 
@@ -41,11 +46,17 @@ impl IoctlArgument {
 
        // Copy the original rule data into the vector
        for &byte in &self.rule[..rule_len] {
-           rule_with_null.push(byte, GFP_KERNEL);
+           if let Err(e) = rule_with_null.push(byte, GFP_KERNEL){
+                pr_err!("Failed during rule copy: {:?}\n", e);
+                return Err(ENOMEM);
+            }
        }
 
        // Ensure the vector is null-terminated
-       rule_with_null.push(0, GFP_KERNEL);
+       if let Err(e) = rule_with_null.push(0, GFP_KERNEL){
+            pr_err!("Failed to append null byte {:?}\n", e);
+            return Err(ENOMEM);
+       }
 
         // Attempt to create a CStr from the bytes array
         let cstr = match CStr::from_bytes_with_nul(&rule_with_null) {
@@ -86,7 +97,7 @@ struct IoctlReadArgument {
 //--------------- IOCTL HANDLERS ---------------
 
 #[no_mangle]
-pub extern "C" fn rust_ioctl(
+pub(crate) extern "C" fn rust_ioctl(
     _file: *mut core::ffi::c_void,
     cmd: u32,
     arg: *mut core::ffi::c_void,
@@ -161,7 +172,7 @@ pub extern "C" fn rust_ioctl(
 //--------------- READ ---------------
 
 #[no_mangle]
-pub extern "C" fn rust_read(
+pub(crate) extern "C" fn rust_read(
     _file: *mut core::ffi::c_void,
     user_buffer: *mut u8,
     count: usize,
