@@ -11,7 +11,7 @@ use core::mem::MaybeUninit;
 
 pub(crate) mod structures;
 use crate::ioctlcmd::structures::constant::{RULE_SIZE,RULE_BUFFER_SIZE};
-use crate::ioctlcmd::structures::UserRuleStore;
+use crate::ioctlcmd::structures::{UserRuleStore,UserRule};
 
 // Declare the external variable
 extern "Rust" {
@@ -93,7 +93,6 @@ struct IoctlReadArgument {
     rules_buffer: [u8; RULE_BUFFER_SIZE], // Buffer to store rules
 }
 
-
 //--------------- IOCTL HANDLERS ---------------
 
 #[no_mangle]
@@ -107,61 +106,127 @@ pub(crate) extern "C" fn rust_ioctl(
         return -EINVAL.to_errno() as isize;
     }
 
-    // Safely copy the IoctlArgument from user space
-    let ioctl_arg = unsafe {
-        let mut buffer: [MaybeUninit<u8>; core::mem::size_of::<IoctlArgument>()] = MaybeUninit::uninit().assume_init();
-        let user_ptr = arg as *const u8;
-        let user_slice = UserSlice::new(user_ptr as usize, buffer.len());
-        let mut reader = user_slice.reader();
+    match cmd {
+        IOCTL_ADD_RULE | IOCTL_REMOVE_RULE => {
+            // Safely copy the IoctlArgument from user space
+            let ioctl_arg = unsafe {
+                let mut buffer: [MaybeUninit<u8>; core::mem::size_of::<IoctlArgument>()] = MaybeUninit::uninit().assume_init();
+                let user_ptr = arg as *const u8;
+                let user_slice = UserSlice::new(user_ptr as usize, buffer.len());
+                let mut reader = user_slice.reader();
 
-        if reader.read_raw(&mut buffer).is_err() {
-            pr_err!("Failed to read from user space\n");
-            return -EFAULT.to_errno() as isize;
+                if reader.read_raw(&mut buffer).is_err() {
+                    pr_err!("Failed to read from user space for ADD/REMOVE IOCTL\n");
+                    return -EFAULT.to_errno() as isize;
+                }
+
+                core::ptr::read(buffer.as_ptr() as *const IoctlArgument)
+            };
+
+            let uid = ioctl_arg.uid;
+            let rule_str = match ioctl_arg.create_cstring_from_rule() {
+                Ok(cstring) => cstring,
+                Err(e) => {
+                    pr_err!("Failed to construct rule string: {:?}\n", e);
+                    return -EINVAL.to_errno() as isize;
+                }
+            };
+
+            // Safely access the USER_RULE_STORE
+            let user_rule_store = unsafe {
+                let store_ptr = addr_of_mut!(USER_RULE_STORE);
+                match (*store_ptr).as_ref() {
+                    Some(store) => store,
+                    None => {
+                        pr_err!("USER_RULE_STORE not initialized\n");
+                        return -EINVAL.to_errno() as isize;
+                    }
+                }
+            };
+
+            match cmd {
+                IOCTL_ADD_RULE => {
+                    if let Err(e) = user_rule_store.add_rule(uid, rule_str) {
+                        pr_err!("Failed to add rule: {:?}\n", e);
+                        return -EFAULT.to_errno() as isize;
+                    }
+                }
+                IOCTL_REMOVE_RULE => {
+                    if let Err(e) = user_rule_store.remove_rule(uid, rule_str) {
+                        pr_err!("Failed to remove rule: {:?}\n", e);
+                        return -EFAULT.to_errno() as isize;
+                    }
+                }
+                _ => unreachable!(),
+            }
         }
 
-        core::ptr::read(buffer.as_ptr() as *const IoctlArgument)
-    };
+        IOCTL_READ_RULES => {
+            // Safely copy the IoctlReadArgument from user space
+            let mut ioctl_read_arg = unsafe {
+                let mut buffer: [MaybeUninit<u8>; core::mem::size_of::<IoctlReadArgument>()] = MaybeUninit::uninit().assume_init();
+                let user_ptr = arg as *const u8;
+                let user_slice = UserSlice::new(user_ptr as usize, buffer.len());
+                let mut reader = user_slice.reader();
 
-    let uid = ioctl_arg.uid;
-    // Construct the rule string from the C-style byte array using CString
-    let rule_str = match ioctl_arg.create_cstring_from_rule()
-    {
-        Ok(cstring) => cstring,
-        Err(e) => {
-            pr_err!("Failed to construct rule string : {:?}\n",e);
-            return -EINVAL.to_errno() as isize;
-        }
-    };
-    
-    //pr_info!("The rule string is: {}",rule_str.to_str().expect("Can't display the string"));
+                if reader.read_raw(&mut buffer).is_err() {
+                    pr_err!("Failed to read from user space for READ IOCTL\n");
+                    return -EFAULT.to_errno() as isize;
+                }
 
-    // Safely access the USER_RULE_STORE
-    let user_rule_store = unsafe {
-        let store_ptr = addr_of_mut!(USER_RULE_STORE);
-        match (*store_ptr).as_ref() {
-            Some(store) => store,
-            None => {
-                pr_err!("USER_RULE_STORE not initialized\n");
+                core::ptr::read(buffer.as_ptr() as *const IoctlReadArgument)
+            };
+
+            // Access the USER_RULE_STORE and filter rules by UID
+            let rules = unsafe {
+                let store_ptr = addr_of_mut!(USER_RULE_STORE);
+                match (*store_ptr).as_ref() {
+                    Some(store) => match store.get_all_rules() {
+                        Ok(rules) => rules, // Borrow the rules list
+                        Err(e) => {
+                            pr_err!("Failed to get all rules: {:?}", e);
+                            return -EFAULT.to_errno() as isize;
+                        }
+                    },
+                    None => {
+                        pr_err!("USER_RULE_STORE not initialized\n");
+                        return -EINVAL.to_errno() as isize;
+                    }
+                }
+            };
+
+            let mut flag = 0;
+            let mut output : Vec<u8> = Vec::new();
+            for user_rule in rules {
+                if ioctl_read_arg.uid == user_rule.uid {
+                    pretty_print_rules(user_rule, &output);
+                    flag = 1;
+                    break;
+                }
+            }
+
+            if flag == 0 {
+                pr_err!("The corresponding user doesn't exist\n");
                 return -EINVAL.to_errno() as isize;
             }
-        }
-    };
 
-    match cmd {
-        IOCTL_ADD_RULE => {
-            if let Err(e) = user_rule_store.add_rule(uid, rule_str) {
-                pr_err!("Failed to add rule: {:?}\n", e);
+            // Ensure buffer size does not exceed
+            let output_len = core::cmp::min(output.len(), ioctl_read_arg.rules_buffer.len());
+            ioctl_read_arg.rules_buffer[..output_len].copy_from_slice(&output[..output_len]);
+
+            // Write the updated structure back to user space
+            let user_ptr = ioctl_read_arg.rules_buffer.as_mut_ptr() as usize;
+            let user_slice = UserSlice::new(user_ptr, RULE_BUFFER_SIZE);
+            let mut writer = user_slice.writer();
+
+            if writer.write_slice(&output).is_err() {
+                pr_err!("Failed to write back to user space for READ IOCTL\n");
                 return -EFAULT.to_errno() as isize;
             }
         }
-        IOCTL_REMOVE_RULE => {
-            if let Err(e) = user_rule_store.remove_rule(uid, rule_str) {
-                pr_err!("Failed to remove rule: {:?}\n", e);
-                return -EFAULT.to_errno() as isize;
-            }
-        }
+
         _ => {
-            pr_err!("Unknown command\n");
+            pr_err!("Unknown IOCTL command\n");
             return -EINVAL.to_errno() as isize;
         }
     }
@@ -200,66 +265,10 @@ pub(crate) extern "C" fn rust_read(
     };
 
     // Generate the output dynamically using Vec<u8>
-    let mut output = Vec::new();
+    let mut output : Vec<u8> = Vec::new();
 
     for user_rule in rules {
-        
-        // Append the UID line using CString::try_from_fmt
-        let uid_str = match CString::try_from_fmt(format_args!("---- UID: {} ----\n", user_rule.uid)) {
-            Ok(cstring) => cstring,
-            Err(e) => {
-                pr_err!("Failed to construct UID string: {:?}\n", e);
-                return -ENOMEM.to_errno() as isize;
-            }
-        };
-        if let Err(e) = output.extend_from_slice(uid_str.as_bytes(), GFP_KERNEL) {
-            pr_err!("Failed to append UID string: {:?}\n", e);
-            return -ENOMEM.to_errno() as isize;
-        }
-
-        // Append each rule
-        for (i, rule) in user_rule.rules.iter().enumerate() {
-            
-            // Append the rule number using CString::try_from_fmt
-            let rule_num_str = match CString::try_from_fmt(format_args!("Rule {}: ", i + 1)) {
-                Ok(cstring) => cstring,
-                Err(e) => {
-                    pr_err!("Failed to construct rule number string: {:?}\n", e);
-                    return -ENOMEM.to_errno() as isize;
-                }
-            };
-            if let Err(e) = output.extend_from_slice(rule_num_str.as_bytes(), GFP_KERNEL) {
-                pr_err!("Failed to append rule number string: {:?}\n", e);
-                return -ENOMEM.to_errno() as isize;
-            }
-
-            //pr_info!("The rule string is: {}",rule.rule.to_str().expect("Can't display the string"));
-
-            // Append the rule itself
-            if let Err(e) = output.extend_from_slice(rule.rule.as_bytes(), GFP_KERNEL) {
-                pr_err!("Failed to append rule string: {:?}\n", e);
-                return -ENOMEM.to_errno() as isize;
-            }
-            
-            // Append a newline
-            if let Err(e) = output.extend_from_slice(b"\n", GFP_KERNEL) {
-                pr_err!("Failed to append newline: {:?}\n", e);
-                return -ENOMEM.to_errno() as isize;
-            }
-        }
-
-        // Append the footer line
-        let footer_str = match CString::try_from_fmt(format_args!(" ---- ---- ----\n")) {
-            Ok(cstring) => cstring,
-            Err(e) => {
-                pr_err!("Failed to construct footer string: {:?}\n", e);
-                return -ENOMEM.to_errno() as isize;
-            }
-        };
-        if let Err(e) = output.extend_from_slice(footer_str.as_bytes(), GFP_KERNEL) {
-            pr_err!("Failed to append footer string: {:?}\n", e);
-            return -ENOMEM.to_errno() as isize;
-        }
+        pretty_print_rules(user_rule, &output);
     }
 
     // Check if the offset is beyond the buffer
@@ -296,4 +305,64 @@ pub(crate) extern "C" fn rust_read(
     } else {
         0 // EOF
     }
+}
+
+fn pretty_print_rules(rules: UserRule, output: &mut Vec<u8>)-> Result<(),Error>{
+    // Append the UID line using CString::try_from_fmt
+    let uid_str = match CString::try_from_fmt(format_args!("---- UID: {} ----\n", rules.uid)) {
+        Ok(cstring) => cstring,
+        Err(e) => {
+            pr_err!("Failed to construct UID string: {:?}\n", e);
+            return Err(ENOMEM);
+        }
+    };
+    if let Err(e) = output.extend_from_slice(uid_str.as_bytes(), GFP_KERNEL) {
+        pr_err!("Failed to append UID string: {:?}\n", e);
+        return Err(ENOMEM);
+    }
+
+    // Append each rule
+    for (i, rule) in rules.rules.iter().enumerate() {
+        
+        // Append the rule number using CString::try_from_fmt
+        let rule_num_str = match CString::try_from_fmt(format_args!("Rule {}: ", i + 1)) {
+            Ok(cstring) => cstring,
+            Err(e) => {
+                pr_err!("Failed to construct rule number string: {:?}\n", e);
+                return Err(ENOMEM);
+            }
+        };
+        if let Err(e) = output.extend_from_slice(rule_num_str.as_bytes(), GFP_KERNEL) {
+            pr_err!("Failed to append rule number string: {:?}\n", e);
+            return Err(ENOMEM);
+        }
+
+        //pr_info!("The rule string is: {}",rule.rule.to_str().expect("Can't display the string"));
+
+        // Append the rule itself
+        if let Err(e) = output.extend_from_slice(rule.rule.as_bytes(), GFP_KERNEL) {
+            pr_err!("Failed to append rule string: {:?}\n", e);
+            return Err(ENOMEM);
+        }
+        
+        // Append a newline
+        if let Err(e) = output.extend_from_slice(b"\n", GFP_KERNEL) {
+            pr_err!("Failed to append newline: {:?}\n", e);
+            return Err(ENOMEM);
+        }
+    }
+
+    // Append the footer line
+    let footer_str = match CString::try_from_fmt(format_args!(" ---- ---- ----\n")) {
+        Ok(cstring) => cstring,
+        Err(e) => {
+            pr_err!("Failed to construct footer string: {:?}\n", e);
+            return Err(ENOMEM);
+        }
+    };
+    if let Err(e) = output.extend_from_slice(footer_str.as_bytes(), GFP_KERNEL) {
+        pr_err!("Failed to append footer string: {:?}\n", e);
+        return Err(ENOMEM);
+    }
+    Ok(())
 }

@@ -10,10 +10,11 @@
 #define IOCTL_MAGIC 's'
 #define IOCTL_ADD_RULE _IOW(IOCTL_MAGIC, 1, struct IoctlArgument)
 #define IOCTL_REMOVE_RULE _IOW(IOCTL_MAGIC, 2, struct IoctlArgument)
+#define IOCTL_READ_RULES _IOR(IOCTL_MAGIC, 3, IoctlReadArgument)
 
 #define DEVICE_PATH "/dev/secrules"
 #define RULE_SIZE 256
-#define BUFFER_SIZE RULE_SIZE*1000
+#define BUFFER_SIZE RULE_SIZE*16
 
 typedef uint32_t u32 ;
 
@@ -23,12 +24,18 @@ struct IoctlArgument {
     char rule[RULE_SIZE]; // Rule string
 } typedef IoctlArgument;
 
+struct IoctlReadArgument {
+    u32 uid;         // User ID (MAX U32 indicates no specific user ID)
+    char buffer[BUFFER_SIZE]; // Buffer to store rules
+} typedef IoctlReadArgument;
 
 int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg);
+int create_ioctl_read_argument(u32 uid, IoctlReadArgument *arg);
 void add_rule(u32 uid, const char *rule);
 void remove_rule(u32 uid, const char *rule);
 void print_man();
 void print_rules();
+void print_rules_by_id(u32 uid);
 int get_command(const char* command);
 
 // Function to sanitize input and create IoctlArgument
@@ -57,6 +64,16 @@ int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg) {
 
     // Ensure the last character is a NUL terminator
     arg->rule[rule_len] = '\0';
+
+    return 0; // Success
+}
+
+// Function to sanitize input and create IoctlReadArgument
+int create_ioctl_argument(u32 uid, IoctlReadArgument *arg) {
+
+    // Initialize the IoctlArgument structure
+    memset(arg, 0, sizeof(IoctlReadArgument));
+    arg->uid = uid;
 
     return 0; // Success
 }
@@ -133,11 +150,34 @@ void print_rules() {
     close(fd);
 }
 
+void print_rules_by_id(u32 uid){
+    int fd = open(DEVICE_PATH, O_WRONLY);
+    if (fd < 0) {
+        perror("Failed to open the device");
+        return;
+    }
+
+    struct IoctlReadArgument arg;
+    int ret = create_ioctl_read_argument(uid, &arg);
+    if (ret < 0) {
+        perror("Bad arguments");
+        return; // Error already logged in create_ioctl_read_argument
+    }
+
+    if (ioctl(fd, IOCTL_READ_RULES, &arg) < 0) {
+        perror("Failed to add rule via ioctl");
+    }
+
+    printf("%s", arg.buffer);
+
+    close(fd);
+}
+
 // Helper function to print the manual
 void print_man() {
     printf("Command Manual:\n");
-    printf("1. print - Print all current rules.\n");
-    printf("   Usage: sec_tool print\n");
+    printf("1. print - Print all current rules. Works for all of a specific user.\n");
+    printf("   Usage: sec_tool print\nsec_tool print uid ");
     printf("2. add - Add a rule for a specific user ID (uid).\n");
     printf("   Usage: sec_tool add <uid> <rule>\n");
     printf("3. rmv - Remove a rule for a specific user ID (uid).\n");
@@ -152,7 +192,17 @@ int main(int argc, char *argv[]) {
 
     switch (get_command(argv[1])) {
         case 1: // print
-            print_rules();
+            if (argc == 4){
+                printf("Usage: %s print <uid> >\n", argv[0]);
+                return -1;            
+                }
+            else-if(argc == 3){
+
+            }
+            else{
+                print_rules();
+            }
+
             break;
         case 2: // add
             if (argc != 4) {
