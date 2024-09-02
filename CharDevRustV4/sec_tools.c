@@ -8,8 +8,8 @@
 
 // Define the IOCTL commands
 #define IOCTL_MAGIC 's'
-#define IOCTL_ADD_RULE _IOW(IOCTL_MAGIC, 1, struct IoctlArgument)
-#define IOCTL_REMOVE_RULE _IOW(IOCTL_MAGIC, 2, struct IoctlArgument)
+#define IOCTL_ADD_RULE _IOW(IOCTL_MAGIC, 1, IoctlArgument)
+#define IOCTL_REMOVE_RULE _IOW(IOCTL_MAGIC, 2, IoctlArgument)
 #define IOCTL_READ_RULES _IOR(IOCTL_MAGIC, 3, IoctlReadArgument)
 
 #define DEVICE_PATH "/dev/secrules"
@@ -40,6 +40,13 @@ int get_command(const char* command);
 
 // Function to sanitize input and create IoctlArgument
 int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg) {
+    
+    // Validate that arg is not NULL
+    if (!arg) {
+        fprintf(stderr, "Error: IoctlArgument is NULL.\n");
+        return -1;
+    }
+
     // Validate that rule is not NULL
     if (!rule) {
         fprintf(stderr, "Error: Rule string is NULL.\n");
@@ -69,11 +76,21 @@ int create_ioctl_argument(u32 uid, const char *rule, IoctlArgument *arg) {
 }
 
 // Function to sanitize input and create IoctlReadArgument
-int create_ioctl_argument(u32 uid, IoctlReadArgument *arg) {
+int create_ioctl_read_argument(u32 uid, IoctlReadArgument *arg) {
 
+    // Validate that arg is not NULL
+    if (!arg) {
+        fprintf(stderr, "Error: IoctlReadArgument is NULL.\n");
+        return -1;
+    }
+    
     // Initialize the IoctlArgument structure
     memset(arg, 0, sizeof(IoctlReadArgument));
     arg->uid = uid;
+
+    // Allocate memory for the rules_buffer
+    // Ensure this matches the size expected in the kernel (RULE_BUFFER_SIZE)
+    memset(arg->buffer, 0, BUFFER_SIZE);
 
     return 0; // Success
 }
@@ -193,13 +210,16 @@ int main(int argc, char *argv[]) {
     switch (get_command(argv[1])) {
         case 1: // print
             if (argc == 4){
+                // The second argument is not needed
                 printf("Usage: %s print <uid> >\n", argv[0]);
                 return -1;            
-                }
-            else-if(argc == 3){
-
+            }
+            if(argc == 3){
+                // Takes the UID and prints only the rules associated to it
+                print_rules_by_id((u32)atoi(argv[2]));
             }
             else{
+                // Print all the rules
                 print_rules();
             }
 

@@ -1,4 +1,17 @@
-// sec_module.rs 
+//! `sec_module`: A Rust kernel module for managing security rules.
+//!
+//! This crate provides the implementation of a Linux kernel module 
+//! that manages user-defined security rules. It supports adding, 
+//! removing, and retrieving rules for specific users via IOCTL system calls.
+//!
+//! # Features
+//! - Add security rules for specific user IDs.
+//! - Remove existing rules for specific user IDs.
+//! - Retrieve all rules or rules for a specific user ID.
+//!
+//! # Usage
+//! To check the how to use the module, check the man in sec_tool 
+
 
 use kernel::prelude::*;
 use kernel::{str::CString, fmt};

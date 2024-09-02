@@ -15,7 +15,7 @@ pub(crate) struct Rule {
 }
 
 impl Rule {
-    // Takes in input a string and initialize the rule
+    /// Takes in input a Cstring and initialize the new rule
     pub(crate) fn new(rule_data: CString) -> Result<Self, Error> {
         if rule_data.as_bytes().len() > RULE_SIZE {
             return Err(EINVAL);
@@ -23,7 +23,7 @@ impl Rule {
         Ok(Self { rule: rule_data })
     }
 
-    // Manually implement cloning by creating a new CString with the same contents
+    /// Custom clone implementation by creating a new CString with the same contents
     pub(crate) fn clone(&self) -> Result<Self, Error> {
         Ok(Rule {
             rule: CString::try_from_fmt(fmt!("{}", self.rule.to_str().expect("UTF8 error during Clone"))).unwrap(),
@@ -31,6 +31,7 @@ impl Rule {
     }
 }
 
+/// UserRule mantains the association between user and rules
 #[derive(Debug)]
 pub(crate) struct UserRule {
     pub(crate) uid: u32,
@@ -38,7 +39,7 @@ pub(crate) struct UserRule {
 }
 
 impl UserRule {
-    // Manually implement cloning by cloning each Rule in the vector
+    /// Custom clone implementation by cloning each Rule in the vector
     fn clone(&self) -> Result<Self, Error> {
         // Create a new Vec<Rule> with the same capacity as the original
         let mut cloned_rules = Vec::with_capacity(self.rules.len(), GFP_KERNEL).expect("User Rule clone failed");
@@ -55,6 +56,8 @@ impl UserRule {
     }
 }
 
+/// This structure contains all the rules for each user. The access is protected
+/// by a Mutex to avoid concurrency problems.
 #[pin_data]
 pub struct UserRuleStore {
     #[pin]
@@ -68,6 +71,7 @@ impl UserRuleStore {
         })
     }
 
+    /// Add the given rule associated with a specific user ID.
     pub(crate) fn add_rule(&self, uid: u32, new_rule: CString) -> Result<(), Error> {
         let mut store = self.store.lock();
         // pr_info!("The rule string is: {}",new_rule.to_str().expect("Can't display the string"));
@@ -89,6 +93,7 @@ impl UserRuleStore {
         Ok(())
     }
 
+    /// Remove the given rule associated with a specific user ID.
     pub(crate) fn remove_rule(&self, uid: u32, rule_to_remove: CString) -> Result<(), Error> {
         let mut store = self.store.lock();
 
@@ -105,25 +110,21 @@ impl UserRuleStore {
     }
 
     /// Retrieves the rules associated with a specific user ID.
-    fn get_rules_by_id(&self, uid: u32) -> Result<Option<Vec<Rule>>, Error> {
+    pub(crate) fn get_rules_by_id(&self, uid: u32) -> Result<Option<UserRule>, Error> {
         let store = self.store.lock();
 
         if let Some(user_rule) = store.iter().find(|user_rule| user_rule.uid == uid) {
-            let mut cloned_rules = Vec::with_capacity(user_rule.rules.len(), GFP_KERNEL).expect("get_rules by id failed");
-
-            for rule in &user_rule.rules {
-                match rule.clone() {
-                    Ok(cloned_rule) => cloned_rules.push(cloned_rule, GFP_KERNEL)?,
+            match user_rule.clone() {
+                    Ok(cloned_rules) => return Ok(Some(cloned_rules)),
                     Err(e) => {
-                        pr_err!("Failed to clone rule: {:?}", e);
+                        pr_err!("Failed to clone user rules: {:?}", e);
                         return Err(e);  // Propagate the error
                     }
-                }
             }
-
-            Ok(Some(cloned_rules))
-        } else {
-            Ok(None)
+        }
+        else {
+            pr_err!("The specified user doesn't exist");
+            return Err(EINVAL);
         }
     }
 

@@ -23,7 +23,7 @@ const IOCTL_MAGIC: u32 = b's' as u32; // Unique magic number
 // Define IOCTL command numbers for add and remove operations
 const IOCTL_ADD_RULE: u32 = _IOW::<IoctlArgument>(IOCTL_MAGIC, 1);
 const IOCTL_REMOVE_RULE: u32 = _IOW::<IoctlArgument>(IOCTL_MAGIC, 2);
-const IOCTL_READ_RULES: u32 = _IOR::<IoctlReadArgument>(IOCTL_MAGIC, 2);
+const IOCTL_READ_RULES: u32 = _IOR::<IoctlReadArgument>(IOCTL_MAGIC, 3);
 
 
 #[repr(C)]
@@ -95,6 +95,45 @@ struct IoctlReadArgument {
 
 //--------------- IOCTL HANDLERS ---------------
 
+/// Handles IOCTL commands for managing user-defined security rules.
+///
+/// This function processes IOCTL commands from user space to add, remove, 
+/// or read security rules associated with specific user IDs. It supports 
+/// the following commands:
+/// - `IOCTL_ADD_RULE`: Adds a rule for a given user ID.
+/// - `IOCTL_REMOVE_RULE`: Removes a rule for a given user ID.
+/// - `IOCTL_READ_RULES`: Retrieves rules for a specific user ID.
+///
+/// # Parameters
+///
+/// - `_file`: A pointer to a file object (unused).
+/// - `cmd`: The IOCTL command to execute (`u32`).
+/// - `arg`: A pointer to the argument structure passed from user space.
+///
+/// # Returns
+///
+/// - `0` on success.
+/// - A negative error code on failure.
+///
+/// # Errors
+///
+/// This function returns various error codes depending on the failure conditions:
+/// - `-EINVAL` if an invalid argument or command is provided.
+/// - `-EFAULT` if reading or writing from/to user space fails.
+/// - `-ENOMEM` if there is a memory allocation error.
+///
+/// # Safety
+///
+/// This function involves unsafe operations such as reading directly from user space.
+/// It must ensure that all pointer dereferences and memory accesses are valid.
+///
+/// # Examples
+///
+/// ```rust
+/// // Example of calling `rust_ioctl` to add a rule
+/// rust_ioctl(file_ptr, IOCTL_ADD_RULE, ioctl_arg_ptr);
+/// ```
+/// 
 #[no_mangle]
 pub(crate) extern "C" fn rust_ioctl(
     _file: *mut core::ffi::c_void,
@@ -177,15 +216,15 @@ pub(crate) extern "C" fn rust_ioctl(
                 core::ptr::read(buffer.as_ptr() as *const IoctlReadArgument)
             };
 
-            // Access the USER_RULE_STORE and filter rules by UID
+            // Access the USER_RULE_STORE and gets rules by UID
             let rules = unsafe {
                 let store_ptr = addr_of_mut!(USER_RULE_STORE);
                 match (*store_ptr).as_ref() {
-                    Some(store) => match store.get_all_rules() {
+                    Some(store) => match store.get_rules_by_id(ioctl_read_arg.uid) {
                         Ok(rules) => rules, // Borrow the rules list
                         Err(e) => {
-                            pr_err!("Failed to get all rules: {:?}", e);
-                            return -EFAULT.to_errno() as isize;
+                            pr_err!("Failed to get rules for UID: {}\n{:?}",ioctl_read_arg.uid, e);
+                            return -EINVAL.to_errno() as isize;
                         }
                     },
                     None => {
@@ -195,32 +234,29 @@ pub(crate) extern "C" fn rust_ioctl(
                 }
             };
 
-            let mut flag = 0;
             let mut output : Vec<u8> = Vec::new();
-            for user_rule in rules {
-                if ioctl_read_arg.uid == user_rule.uid {
-                    pretty_print_rules(user_rule, &output);
-                    flag = 1;
-                    break;
+            if let Some(user_rule) = rules {
+                if let Err(e) = pretty_print_rules(user_rule, &mut output){
+                    return e.to_errno() as isize;
                 }
             }
-
-            if flag == 0 {
-                pr_err!("The corresponding user doesn't exist\n");
-                return -EINVAL.to_errno() as isize;
-            }
-
-            // Ensure buffer size does not exceed
+            
+            // Calculate the length of the data to be copied
             let output_len = core::cmp::min(output.len(), ioctl_read_arg.rules_buffer.len());
+
+            // Update the local kernel copy's buffer with the output
             ioctl_read_arg.rules_buffer[..output_len].copy_from_slice(&output[..output_len]);
 
-            // Write the updated structure back to user space
-            let user_ptr = ioctl_read_arg.rules_buffer.as_mut_ptr() as usize;
-            let user_slice = UserSlice::new(user_ptr, RULE_BUFFER_SIZE);
+            // Write the updated buffer back to user space
+            // Moves u32 size forward to match the addr of the buffer inside the IoctReadArgument.
+            let user_buffer_ptr = unsafe { (arg as *mut u8).add(core::mem::size_of::<u32>()) as usize }; 
+            
+            let user_slice = UserSlice::new(user_buffer_ptr, output_len);
             let mut writer = user_slice.writer();
 
-            if writer.write_slice(&output).is_err() {
-                pr_err!("Failed to write back to user space for READ IOCTL\n");
+            // Write the kernel buffer to the user's buffer
+            if let Err(e) = writer.write_slice(&ioctl_read_arg.rules_buffer[..output_len]) {
+                pr_err!("Failed to write back to user space for READ IOCTL: {:?}\n", e);
                 return -EFAULT.to_errno() as isize;
             }
         }
@@ -268,7 +304,9 @@ pub(crate) extern "C" fn rust_read(
     let mut output : Vec<u8> = Vec::new();
 
     for user_rule in rules {
-        pretty_print_rules(user_rule, &output);
+        if let Err(e) = pretty_print_rules(user_rule, &mut output){
+            return e.to_errno() as isize;
+        }    
     }
 
     // Check if the offset is beyond the buffer
