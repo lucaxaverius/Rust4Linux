@@ -32,7 +32,7 @@ void print_rules()
         return;
     }
     buffer[bytes_read] = '\0';
-    printf("%s", buffer);
+    printf("%s\n", buffer);
     close(fd);
 }
 

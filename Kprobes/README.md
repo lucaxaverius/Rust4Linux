@@ -1,7 +1,7 @@
 # Rust out-of-tree module with C code integration
 
 This is a basic template for an out-of-tree Linux kernel module written in Rust that uses C code.
-This example use kprobes that are not currently (6.11-rc1) supported in Rust via C code.
+This example use kprobes, that are not currently (6.11) supported in Rust via, C code.
 
 Please note that:
 

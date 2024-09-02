@@ -25,9 +25,9 @@ pub extern "C" fn rust_read(
     count: usize,
     offset: *mut u64,
 ) -> isize {
-    // Convert the current offset to usize
+    // Convert the offset to usize
     let current_offset = unsafe { *offset as usize };
-    //pr_info!("This should be the buffer current_offeset {}",current_offset);
+    //pr_info!("This should be the buffer current_offset {}",current_offset);
 
     let buffer_size = BUFFER_SIZE.load(Ordering::Relaxed);
     //pr_info!("This should be the buffer size {}",buffer_size);

@@ -1,0 +1,5 @@
+1) Introduce a structure that mantains rule and
+ associate them to user_id. Ok
+
+2) Create a function that sanitize the input in the client.
+ 
