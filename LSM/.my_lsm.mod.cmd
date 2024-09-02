@@ -1,0 +1,1 @@
+savedcmd_/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/my_lsm.mod := printf '%s\n'   my_lsm.o | awk '!x[$$0]++ { print("/home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/"$$0) }' > /home/rustxave/Scrivania/Rust-Modules/Rust4Linux/LSM/my_lsm.mod

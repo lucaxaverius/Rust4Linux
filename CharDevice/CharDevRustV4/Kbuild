@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0
+# Specify the Rust object file
+obj-m := sec_module.o 
+
+# Add dependencies for rust_kprobes
+sec_module-objs := src/sec_module.o c/sec_device.o
