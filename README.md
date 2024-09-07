@@ -1,3 +1,6 @@
+# Rust4Linux
+This repository contains all the training examples and some trash code that i will produce.
+
 # Rust4LinuxExperiments
 Welcome to the Rust for Linux Kernel Experiments repository. <br />
 This project contains experiments focused on exploring the support for the Rust programming language within the Linux kernel. Specifically, we will be creating out-of-tree kernel modules to investigate the extent to which Rust can be integrated and utilized in kernel development.
@@ -27,3 +30,4 @@ The device leverages IOCTL (Input/Output Control) commands to add, remove, and r
 - *Add*: Adds an access control rule for a specific user.
 - *Remove*: Removes an access control rule for a specific user.
 - *Read*: Retrieves all access control rules for a given user, or all users, if no specific uid is provided.
+
