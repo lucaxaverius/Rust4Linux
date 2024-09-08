@@ -31,3 +31,39 @@ The device leverages IOCTL (Input/Output Control) commands to add, remove, and r
 - *Remove*: Removes an access control rule for a specific user.
 - *Read*: Retrieves all access control rules for a given user, or all users, if no specific uid is provided.
 
+### Mentor: Creating Bindings to a simple driver
+
+We added a simple dummy device driver named `mentor` to the Linux kernel and created Rust bindings for its functions.
+
+- **Driver Overview:**
+  - The `mentor` driver implements basic read and write operations on a dummy device.
+  - The driver uses a spinlock (`mentor_lock`) to manage concurrent access to a shared data structure (`mentor_data`).
+  - It also includes a simulated undefined behavior function for testing purposes.
+
+- **Exported Functions:**
+  - `mentor_write(u8 addr, u32 value)`: Writes a value to the specified address in the dummy device.
+  - `__mentor_read(u8 addr) -> u32`: Reads a value from the specified address in the dummy device.
+
+- **Creating Rust Bindings:**
+  - We created Rust bindings for the exported `mentor` functions by writing corresponding Rust code that interacts with these functions through the FFI (Foreign Function Interface).
+  - The bindings allow us to call the `mentor_write` and `__mentor_read` functions directly from Rust code.
+
+- **Testing:**
+  - We wrote a test module in Rust that utilizes the `mentor` functions to verify the correctness of the bindings.
+  - Ensured that the module compiled correctly and integrated with the Linux kernel.
+
+
+### Jiffies
+We created Rust bindings for the `jiffies` kernel functions, which provide a way to interact with the Linux kernel's timekeeping mechanism. The `jiffies` counter is a global variable that tracks the number of timer interrupts that have occurred since the system booted.
+
+- **Functions Bound:**
+  - `jiffies_to_msecs(j)`: Converts a given jiffies value to milliseconds.
+  - `jiffies_to_usecs(j)`: Converts a given jiffies value to microseconds.
+  
+- **Safety Measures:**
+  - Ensured the `j` parameter for `jiffies_to_usecs` is of type `u64` to maintain type safety and prevent overflows.
+
+- **Implementation:**
+  - We wrote a Rust abstraction in `jiffies.rs` to call these functions safely from Rust code.
+  - This required including the relevant kernel header and writing the Rust bindings to map to the C functions.
+
