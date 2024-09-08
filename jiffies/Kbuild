@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0
+# Specify the Rust object file
+obj-m := jiffies_test.o	
