@@ -1,6 +1,8 @@
 # Jiffies test
 Questo è un semplice modulo di test per verificare il corretto funzionamento dei bindings tra Rust e C. <br />
-In particolare sono stati realizzati dei bindings verso semplici funzioni come:
+Per realizzare questo bindings è stata seguita la [patch](https://github.com/Rust-for-Linux/linux/commit/d4d791d4aac041fde6eeba0a8f9201d728b52373) del kernel in cui è stato aggiunto il supporto alle workqueue e la presentazione di Linux Foundation presente in pdf nel repository. <br />
+
+In particolare sono stati realizzati dei bindings verso semplici funzioni di jiffies come:
 ```bash
     pub fn jiffies_to_usecs(j: u64) -> u64 {
     unsafe { bindings::jiffies_to_usecs(j as c_ulong) as u64 }
