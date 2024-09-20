@@ -1,3 +1,3 @@
 # SPDX-License-Identifier: GPL-2.0
 # Specify the Rust object file
-obj-m := linked_list.o	
+obj-m := linked_list_test.o	

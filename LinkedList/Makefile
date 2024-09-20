@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-obj-m += linked_list.o
+obj-m += linked_list_test.o
 
 # Build everything (both C and Rust code)
 all:
