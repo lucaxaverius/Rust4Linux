@@ -6,6 +6,9 @@
 //! implementation, allowing Rust code to interact with kernel linked lists.
 //! It includes various list operations and iterators to traverse the lists.
 
+//! C headers: [`include/linux/list.h`](../../../../include/linux/list.h)
+
+
 use core::marker::PhantomData;
 
 use kernel::bindings;
@@ -16,7 +19,9 @@ use kernel::bindings;
 /// It provides methods to manipulate the linked list.
 #[repr(C)]
 pub struct ListHead {
+    /// Pointer to the next element in the list.
     pub next: *mut bindings::list_head,
+    /// Pointer to the previous element in the list.
     pub prev: *mut bindings::list_head,
 }
 
@@ -46,7 +51,7 @@ impl ListHead {
     /// ```
     pub fn init(&mut self) {
         unsafe {
-            bindings::INIT_LIST_HEAD(self as *mut ListHead as *mut bindings::list_head);
+            bindings::init_list_head(self as *mut ListHead as *mut bindings::list_head);
         }
     }
 
@@ -220,8 +225,10 @@ impl ListHead {
     ///     // Handle empty list
     /// }
     /// ```
-    pub fn is_empty(&self) -> bool {
-        unsafe { bindings::list_empty(self as *const ListHead as *const bindings::list_head) != 0 }
+    pub fn is_empty(&mut self) -> bool {
+        unsafe { 
+            bindings::list_empty(self as *mut ListHead as *mut bindings::list_head) != 0 
+        }
     }
 
     /// Splices two lists.
