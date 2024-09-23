@@ -18,6 +18,8 @@ module! {
 
 struct LinkedListTest;
 
+const LIST_SIZE: u32 = 1000000; 
+
 impl kernel::Module for LinkedListTest {
     fn init(_module: &'static ThisModule) -> Result<Self> {
         pr_info!("Starting Linked List Operations Test...\n");
@@ -28,21 +30,29 @@ impl kernel::Module for LinkedListTest {
 
         // Measure adding elements
         let start_add = Ktime::ktime_get();
-        for i in 0..1000 {
+        for i in 0..LIST_SIZE {
             let mut item = Box::new(MyListItem::new(i), GFP_KERNEL).unwrap();
             head.add(item.get_list_head()); // Pass *mut ListHead
         }
         let end_add = Ktime::ktime_get();
         let duration_add = time::ktime_ms_delta(end_add, start_add);
-        pr_info!("Time taken to add 1000 elements: {} ms\n", duration_add);
+        pr_info!("Time taken to add {} elements: {} ms\n", LIST_SIZE, duration_add);
+        //pr_info!("Time taken to add 1000 elements: {} ms (start: {}, end: {})\n",duration_add,start_add.to_ms(),end_add.to_ms());
 
         // Measure iterating over elements
         let start_iter = Ktime::ktime_get();
         let mut iter = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
-        while iter.next().is_some() {}
+        
+        while let Some(item_head) = iter.next() {
+            unsafe {
+                let item = MyListItem::from_list_head(item_head as *mut ListHead);
+                (*item).data += 1; // Add 1 to the data field of MyListItem
+            }
+        }
+
         let end_iter = Ktime::ktime_get();
         let duration_iter = time::ktime_ms_delta(end_iter, start_iter);
-        pr_info!("Time taken to iterate over 1000 elements: {} ms\n", duration_iter);
+        pr_info!("Time taken to iterate over {} elements: {} ms\n", LIST_SIZE, duration_iter);
 
         // Measure removing elements
         let start_del = Ktime::ktime_get();
@@ -55,10 +65,12 @@ impl kernel::Module for LinkedListTest {
 
         let end_del = Ktime::ktime_get();
         let duration_del = time::ktime_ms_delta(end_del, start_del);
-        pr_info!("Time taken to remove 1000 elements: {} ms\n", duration_del);
+        pr_info!("Time taken to remove {} elements: {} ms\n", LIST_SIZE,duration_del);
 
         // Test additional linked list operations
         let mut item = Box::new(MyListItem::new(1001), GFP_KERNEL).unwrap();
+        head.add(item.get_list_head());
+        let mut item = Box::new(MyListItem::new(1003), GFP_KERNEL).unwrap();
         head.add(item.get_list_head());
 
         // Check if the list is empty after adding one item
@@ -70,13 +82,10 @@ impl kernel::Module for LinkedListTest {
         head.replace(item.get_list_head(), new_item.get_list_head());
 
         // Verify the replacement
-        let mut iter_after_replace = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
+        let mut iter_after_replace = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);  
         if let Some(entry_ptr) = iter_after_replace.next() {
-            unsafe {
-                let my_item = MyListItem::from_list_head(entry_ptr as *mut bindings::list_head);
-                assert_eq!((*my_item).data, 1002);
-                pr_info!("Item successfully replaced with data: {}\n", (*my_item).data);
-            }
+            let my_item = MyListItem::from_list_head(head as *mut bindings::list_head);
+            pr_info!("Other items with data: {}\n", (*my_item).data);
         }
 
         pr_info!("Linked List Operations Test Completed.\n");

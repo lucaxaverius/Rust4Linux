@@ -280,7 +280,11 @@ pub trait ListEntry {
     /// - The memory referenced by `ptr` must be valid for the lifetime of `Self`.
     unsafe fn from_list_head(ptr: *mut bindings::list_head) -> *const Self;
 
-    /// Given a mutable reference to Self, returns a pointer to its `ListHead` field.
+    /// Given a mut reference to `Self`, returns a pointer to its `ListHead` field.
+    ///
+    /// # Returns
+    ///
+    /// A mutable pointer to the `ListHead` field within `Self`.
     fn get_list_head(&mut self) -> *mut ListHead;
 }
 
