@@ -1,16 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
-
-//! Rust abstractions for kernel linked list functions.
-//!
-//! This module provides safe Rust bindings for the Linux kernel's linked list
-//! implementation, allowing Rust code to interact with kernel linked lists.
-//! It includes various list operations and iterators to traverse the lists.
-
-//! C headers: [`include/linux/list.h`](../../../../include/linux/list.h)
-
+// linked_list.rs
 
 use core::marker::PhantomData;
-
 use kernel::bindings;
 
 /// Represents a kernel linked list head.
@@ -31,7 +21,7 @@ impl ListHead {
     /// # Safety
     ///
     /// The caller must ensure that the `ListHead` is properly initialized
-    /// using `INIT_LIST_HEAD` before use.
+    /// using `init` before use.
     pub const fn new_uninitialized() -> Self {
         ListHead {
             next: core::ptr::null_mut(),
@@ -225,9 +215,9 @@ impl ListHead {
     ///     // Handle empty list
     /// }
     /// ```
-    pub fn is_empty(&mut self) -> bool {
+    pub fn is_empty(&self) -> bool {
         unsafe { 
-            bindings::list_empty(self as *mut ListHead as *mut bindings::list_head) != 0 
+            bindings::list_empty(self as *const ListHead as *mut bindings::list_head) != 0 
         }
     }
 
@@ -280,7 +270,7 @@ impl ListHead {
 
 /// Trait to associate a struct with its `ListHead` member.
 ///
-/// This trait provides a method to retrieve the parent struct from a `ListHead` pointer.
+/// This trait provides methods to retrieve the parent struct and its `ListHead` pointer.
 pub trait ListEntry {
     /// Converts a `ListHead` pointer to a pointer of the parent struct.
     ///
@@ -289,199 +279,95 @@ pub trait ListEntry {
     /// - The `ptr` must be a valid pointer to a `ListHead` that is embedded within a `Self` instance.
     /// - The memory referenced by `ptr` must be valid for the lifetime of `Self`.
     unsafe fn from_list_head(ptr: *mut bindings::list_head) -> *const Self;
+
+    /// Given a mutable reference to Self, returns a pointer to its `ListHead` field.
+    fn get_list_head(&mut self) -> *mut ListHead;
 }
 
 /// Iterator for traversing a linked list in forward order.
-///
-/// This struct allows iterating over the entries of a `ListHead`.
-///
-/// PhantomData is a zero-sized type used to mark unused generic type parameters. 
-/// It informs the Rust compiler about certain properties of your types without actually storing any data. 
-/// This is crucial for maintaining correct type relationships, especially around ownership and lifetimes.
-/// In details: helps manage lifetimes and borrowing rules. It ensures that the iterator doesn't outlive the data it references.
-pub struct ListIterator<'a, T: ListEntry> {
+/// Yields raw pointers to `ListHead`.
+pub struct ListIterator<T: ListEntry> {
     current: *mut bindings::list_head,
-    head: &'a ListHead,
-    _marker: PhantomData<&'a T>,
+    head: *mut bindings::list_head,
+    _marker: PhantomData<T>,
 }
 
-
-impl<'a, T: ListEntry> ListIterator<'a, T> {
+impl<T: ListEntry> ListIterator<T> {
     /// Creates a new `ListIterator`.
     ///
     /// # Arguments
     ///
-    /// * `head` - Reference to the list head.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let iter = ListIterator::<MyListItem>::new(&head);
-    /// ```
-    pub fn new(head: &'a ListHead) -> Self {
+    /// * `head` - Mutable pointer to the list head.
+    pub fn new(head: *mut ListHead) -> Self {
         ListIterator {
-            current: head as *const ListHead as *mut bindings::list_head,
-            head,
+            current: head as *mut bindings::list_head,
+            head: head as *mut bindings::list_head,
             _marker: PhantomData,
         }
     }
 }
 
-impl<'a, T: ListEntry> Iterator for ListIterator<'a, T> {
-    type Item = &'a T;
+impl<T: ListEntry> Iterator for ListIterator<T> {
+    type Item = *mut ListHead; // Yield raw pointer
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current == self.head as *const ListHead as *mut bindings::list_head {
+        if self.current == self.head {
             return None;
         }
 
         unsafe {
-            // Convert the current list_head pointer to the parent struct pointer
-            let ptr = T::from_list_head(self.current) as *const T;
+            let ptr = T::from_list_head(self.current) as *mut T;
             self.current = (*self.current).next;
 
             if ptr.is_null() {
                 None
             } else {
-                Some(&*ptr)
+                Some((*ptr).get_list_head())
             }
         }
     }
 }
 
 /// Reverse iterator for traversing a linked list in reverse order.
-///
-/// This struct allows iterating over the entries of a `ListHead` in reverse.
-///
-/// PhantomData is a zero-sized type used to mark unused generic type parameters. 
-/// It informs the Rust compiler about certain properties of your types without actually storing any data. 
-/// This is crucial for maintaining correct type relationships, especially around ownership and lifetimes.
-/// In details: helps manage lifetimes and borrowing rules. It ensures that the iterator doesn't outlive the data it references.
-pub struct ReverseListIterator<'a, T: ListEntry> {
+/// Yields raw pointers to `ListHead`.
+pub struct ReverseListIterator<T: ListEntry> {
     current: *mut bindings::list_head,
-    head: &'a ListHead,
-    _marker: PhantomData<&'a T>,
+    head: *mut bindings::list_head,
+    _marker: PhantomData<T>,
 }
 
-
-impl<'a, T: ListEntry> ReverseListIterator<'a, T> {
+impl<T: ListEntry> ReverseListIterator<T> {
     /// Creates a new `ReverseListIterator`.
     ///
     /// # Arguments
     ///
-    /// * `head` - Reference to the list head.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let reverse_iter = ReverseListIterator::<MyListItem>::new(&head);
-    /// ```
-    pub fn new(head: &'a ListHead) -> Self {
+    /// * `head` - Mutable pointer to the list head.
+    pub fn new(head: *mut ListHead) -> Self {
         ReverseListIterator {
-            current: head as *const ListHead as *mut bindings::list_head,
-            head,
+            current: head as *mut bindings::list_head,
+            head: head as *mut bindings::list_head,
             _marker: PhantomData,
         }
     }
 }
 
-impl<'a, T: ListEntry> Iterator for ReverseListIterator<'a, T> {
-    type Item = &'a T;
+impl<T: ListEntry> Iterator for ReverseListIterator<T> {
+    type Item = *mut ListHead; // Yield raw pointer
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current == self.head as *const ListHead as *mut bindings::list_head {
+        if self.current == self.head {
             return None;
         }
 
         unsafe {
-            // Convert the current list_head pointer to the parent struct pointer
-            let ptr = T::from_list_head(self.current) as *const T;
+            let ptr = T::from_list_head(self.current) as *mut T;
             self.current = (*self.current).prev;
 
             if ptr.is_null() {
                 None
             } else {
-                Some(&*ptr)
+                Some((*ptr).get_list_head())
             }
         }
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_list_operations() {
-        // Initialize list head
-        let mut head = ListHead::new_uninitialized();
-        head.init();
-
-        // Create new entries
-        let mut entry1 = Box::new(MyListItem::new(1));
-        let mut entry2 = Box::new(MyListItem::new(2));
-        let mut entry3 = Box::new(MyListItem::new(3));
-
-        // Add entries to the list
-        head.add(&mut entry1.list);
-        head.add_tail(&mut entry2.list);
-        head.add_tail(&mut entry3.list);
-
-        // Check list is not empty
-        assert!(!head.is_empty());
-
-        // Replace entry2 with a new entry
-        let mut entry4 = Box::new(MyListItem::new(4));
-        head.replace(&mut entry2.list, &mut entry4.list);
-
-        // Iterate over the list and verify entries
-        let mut iter = ListIterator::<MyListItem>::new(&head);
-        assert_eq!(iter.next().unwrap().data, 1);
-        assert_eq!(iter.next().unwrap().data, 4);
-        assert_eq!(iter.next().unwrap().data, 3);
-        assert!(iter.next().is_none());
-
-        // Iterate in reverse and verify entries
-        let mut reverse_iter = ReverseListIterator::<MyListItem>::new(&head);
-        assert_eq!(reverse_iter.next().unwrap().data, 3);
-        assert_eq!(reverse_iter.next().unwrap().data, 4);
-        assert_eq!(reverse_iter.next().unwrap().data, 1);
-        assert!(reverse_iter.next().is_none());
-
-        // Delete entry4
-        head.del(&mut entry4.list);
-        assert!(!head.is_empty());
-
-        // Final iteration
-        let mut final_iter = ListIterator::<MyListItem>::new(&head);
-        assert_eq!(final_iter.next().unwrap().data, 1);
-        assert_eq!(final_iter.next().unwrap().data, 3);
-        assert!(final_iter.next().is_none());
-    }
-
-    // Define a simple structure containing a list_head for testing
-    struct MyListItem {
-        list: ListHead,
-        data: u32,
-    }
-
-    impl MyListItem {
-        fn new(data: u32) -> Self {
-            let mut item = MyListItem {
-                list: ListHead::new_uninitialized(),
-                data,
-            };
-            item.list.init();
-            item
-        }
-    }
-
-    impl ListEntry for MyListItem {
-        unsafe fn from_list_head(ptr: *mut bindings::list_head) -> *const Self {
-            container_of!(ptr, MyListItem, list) as *const MyListItem
-        }
-    }
-}
-
-

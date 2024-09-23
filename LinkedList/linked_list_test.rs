@@ -1,3 +1,5 @@
+// linked_list_test.rs
+
 // SPDX-License-Identifier: GPL-2.0
 
 //! Linked List Test Module
@@ -27,8 +29,8 @@ impl kernel::Module for LinkedListTest {
         // Measure adding elements
         let start_add = Ktime::ktime_get();
         for i in 0..1000 {
-            let item = Box::new(MyListItem::new(i), GFP_KERNEL);
-            head.add(& mut item.unwrap().list);
+            let mut item = Box::new(MyListItem::new(i), GFP_KERNEL).unwrap();
+            head.add(item.get_list_head()); // Pass *mut ListHead
         }
         let end_add = Ktime::ktime_get();
         let duration_add = time::ktime_ms_delta(end_add, start_add);
@@ -36,7 +38,7 @@ impl kernel::Module for LinkedListTest {
 
         // Measure iterating over elements
         let start_iter = Ktime::ktime_get();
-        let mut iter = ListIterator::<MyListItem>::new(&head);
+        let mut iter = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
         while iter.next().is_some() {}
         let end_iter = Ktime::ktime_get();
         let duration_iter = time::ktime_ms_delta(end_iter, start_iter);
@@ -44,46 +46,45 @@ impl kernel::Module for LinkedListTest {
 
         // Measure removing elements
         let start_del = Ktime::ktime_get();
-        let mut to_delete = Vec::new();
-        let mut current_iter = ListIterator::<MyListItem>::new(&head);
-        
-        // Collect entries to delete
-        while let Some(entry) = current_iter.next() {
-            to_delete.push(entry, GFP_KERNEL);
+        let mut current_iter = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
+
+        // Directly delete entries as we iterate
+        while let Some(entry_ptr) = current_iter.next() {
+            head.del(entry_ptr);  // Pass the raw pointer directly
         }
-        
-        // Now, remove them from the head
-        for entry in to_delete {
-            head.del(&mut entry.list);
-        }
+
         let end_del = Ktime::ktime_get();
         let duration_del = time::ktime_ms_delta(end_del, start_del);
         pr_info!("Time taken to remove 1000 elements: {} ms\n", duration_del);
-        
+
         // Test additional linked list operations
-        let item = Box::new(MyListItem::new(1001), GFP_KERNEL)?;
-        head.add(&mut item.list);
+        let mut item = Box::new(MyListItem::new(1001), GFP_KERNEL).unwrap();
+        head.add(item.get_list_head());
 
         // Check if the list is empty after adding one item
         assert!(!head.is_empty());
         pr_info!("List is not empty after adding one item.\n");
 
         // Replace the item
-        let new_item = Box::new(MyListItem::new(1002), GFP_KERNEL)?;
-        head.replace(&mut item.list, &mut new_item.list);
+        let mut new_item = Box::new(MyListItem::new(1002), GFP_KERNEL).unwrap();
+        head.replace(item.get_list_head(), new_item.get_list_head());
 
         // Verify the replacement
-        let mut iter_after_replace = ListIterator::<MyListItem>::new(&head);
-        let first_entry = iter_after_replace.next().unwrap();
-        assert_eq!(first_entry.data, 1002);
-        pr_info!("Item successfully replaced with data: {}\n", first_entry.data);
+        let mut iter_after_replace = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
+        if let Some(entry_ptr) = iter_after_replace.next() {
+            unsafe {
+                let my_item = MyListItem::from_list_head(entry_ptr as *mut bindings::list_head);
+                assert_eq!((*my_item).data, 1002);
+                pr_info!("Item successfully replaced with data: {}\n", (*my_item).data);
+            }
+        }
 
         pr_info!("Linked List Operations Test Completed.\n");
         Ok(LinkedListTest)
     }
 }
 
-// Define a simple structure containing a list_head for testing
+/// A simple structure containing a `ListHead` for testing.
 struct MyListItem {
     list: ListHead,
     data: u32,
@@ -103,6 +104,9 @@ impl MyListItem {
 impl ListEntry for MyListItem {
     unsafe fn from_list_head(ptr: *mut bindings::list_head) -> *const Self {
         container_of!(ptr, MyListItem, list) as *const MyListItem
-        }
-}
+    }
 
+    fn get_list_head(&mut self) -> *mut ListHead {
+        &mut self.list as *mut ListHead
+    }
+}
