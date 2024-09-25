@@ -1,0 +1,62 @@
+        // Verify container_of
+        let item_list = item.get_list_head();
+        let item_list_ptr = &item_list;
+        let item_alias = unsafe{container_of!(item_list_ptr, MyListItem, list)};
+        //assert!(core::ptr::eq(item_alias, &*item));
+        pr_info!("Item alias {:p} has data {}",item_alias,item.data);
+
+        
+        // Measure iterating over elements
+        let start_iter = Ktime::ktime_get();
+        let mut iter = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
+        
+        while let Some(item) = iter.next() {
+            unsafe{
+                if !item.is_null(){
+                    (*item).data += 1; // Add 1 to the data field of MyListItem
+                } 
+            }
+        }
+
+        let end_iter = Ktime::ktime_get();
+        let duration_iter = time::ktime_ms_delta(end_iter, start_iter);
+        pr_info!("Time taken to iterate over {} elements: {} ms\n", LIST_SIZE, duration_iter);
+        //pr_info!("Time taken to iterate over {} elements: {} ms (start: {}, end: {})\n",LIST_SIZE,duration_iter,start_iter.to_ns(),end_iter.to_ns());
+            
+        
+        // Measure removing elements
+        let start_del = Ktime::ktime_get();
+        let mut current_iter = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);
+
+        // Directly delete entries as we iterate
+        while let Some(to_delete) = current_iter.next() {
+            unsafe{
+                head.del((*to_delete).get_list_head());  // Pass the raw pointer directly
+            }
+        }
+
+        let end_del = Ktime::ktime_get();
+        let duration_del = time::ktime_ms_delta(end_del, start_del);
+        pr_info!("Time taken to remove {} elements: {} ms\n", LIST_SIZE,duration_del);
+
+        // Test additional linked list operations
+        let mut item = Box::new(MyListItem::new(1001), GFP_KERNEL).unwrap();
+        head.add(item.get_list_head());
+        let mut item = Box::new(MyListItem::new(1003), GFP_KERNEL).unwrap();
+        head.add(item.get_list_head());
+
+        // Check if the list is empty after adding one item
+        assert!(!head.is_empty());
+        pr_info!("List is not empty after adding one item.\n");
+
+        // Replace the item
+        let mut new_item = Box::new(MyListItem::new(1002), GFP_KERNEL).unwrap();
+        head.replace(item.get_list_head(), new_item.get_list_head());
+
+        // Verify the replacement
+        let mut iter_after_replace = ListIterator::<MyListItem>::new(&mut head as *mut ListHead);  
+        while let Some(item_replaced) = iter_after_replace.next() {   
+            unsafe{
+                pr_info!("Item with data: {}\n", (*item_replaced).data);
+            }
+        }

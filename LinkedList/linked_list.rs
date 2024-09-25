@@ -2,6 +2,8 @@
 
 use core::marker::PhantomData;
 use kernel::bindings;
+use crate::pr_info;
+
 
 /// Represents a kernel linked list head.
 ///
@@ -278,7 +280,7 @@ pub trait ListEntry {
     ///
     /// - The `ptr` must be a valid pointer to a `ListHead` that is embedded within a `Self` instance.
     /// - The memory referenced by `ptr` must be valid for the lifetime of `Self`.
-    unsafe fn from_list_head(ptr: *mut bindings::list_head) -> *const Self;
+    unsafe fn parent_from_list_head(ptr: *mut ListHead) -> *mut Self;
 
     /// Given a mut reference to `Self`, returns a pointer to its `ListHead` field.
     ///
@@ -290,43 +292,59 @@ pub trait ListEntry {
 
 /// Iterator for traversing a linked list in forward order.
 /// Yields raw pointers to `ListHead`.
-pub struct ListIterator<T: ListEntry> {
-    current: *mut bindings::list_head,
-    head: *mut bindings::list_head,
-    _marker: PhantomData<T>,
+pub struct ListIterator<'a, T: ListEntry> {
+    current: *mut ListHead,
+    head: *mut ListHead,
+    _marker: PhantomData<&'a mut T>, // Tied to the lifetime of T
 }
 
-impl<T: ListEntry> ListIterator<T> {
+impl<'a, T: ListEntry> ListIterator<'a, T> {
     /// Creates a new `ListIterator`.
     ///
     /// # Arguments
     ///
     /// * `head` - Mutable pointer to the list head.
     pub fn new(head: *mut ListHead) -> Self {
-        ListIterator {
-            current: head as *mut bindings::list_head,
-            head: head as *mut bindings::list_head,
-            _marker: PhantomData,
+        unsafe{
+            ListIterator {
+                current: (*head).next as *mut ListHead,
+                head: head,
+                _marker: PhantomData,
+            }
         }
     }
 }
 
-impl<T: ListEntry> Iterator for ListIterator<T> {
-    type Item = *mut ListHead; // Yield raw pointer
+impl<'a, T: ListEntry> Iterator for ListIterator<'a, T> {
+    type Item = &'a mut T; // Return mutable reference
 
+    /// A safe method to use when modifying the list, e.g., removing elements.
+    /// or when simply iterating on it.
     fn next(&mut self) -> Option<Self::Item> {
         if self.current == self.head {
+            pr_info!("Iteration completed");
             return None;
         }
-
+        
+        if self.current.is_null() {
+            pr_info!("Can't reference NULL pointer");
+            return None;
+        }
+        //pr_info!("Current: {:?}, Head: {:?}\n", self.current, self.head);
         unsafe {
-            let ptr = T::from_list_head(self.current) as *mut T;
-            self.current = (*self.current).next;
+            let next = (*self.current).next as *mut ListHead;  // Get next before modifying current
+
+            let ptr = T::parent_from_list_head(self.current);
+
+            //pr_info!("MyListItem pointer is: {:p}",ptr);
+            
+            self.current = next;
 
             if ptr.is_null() {
                 None
             } else {
-                Some((*ptr).get_list_head())
+                // Cast the pointer to the actual type T 
+                Some(&mut *(ptr as *mut T))            
             }
         }
     }
@@ -334,44 +352,59 @@ impl<T: ListEntry> Iterator for ListIterator<T> {
 
 /// Reverse iterator for traversing a linked list in reverse order.
 /// Yields raw pointers to `ListHead`.
-pub struct ReverseListIterator<T: ListEntry> {
-    current: *mut bindings::list_head,
-    head: *mut bindings::list_head,
-    _marker: PhantomData<T>,
+pub struct ReverseListIterator<'a, T: ListEntry> {
+    current: *mut ListHead,
+    head: *mut ListHead,
+    _marker: PhantomData<&'a mut T>, // Tied to the lifetime of T
 }
 
-impl<T: ListEntry> ReverseListIterator<T> {
+impl<'a, T: ListEntry> ReverseListIterator<'a, T> {
     /// Creates a new `ReverseListIterator`.
     ///
     /// # Arguments
     ///
     /// * `head` - Mutable pointer to the list head.
+      
     pub fn new(head: *mut ListHead) -> Self {
-        ReverseListIterator {
-            current: head as *mut bindings::list_head,
-            head: head as *mut bindings::list_head,
-            _marker: PhantomData,
+        unsafe{ 
+            ReverseListIterator {
+                current: (*head).prev as *mut ListHead,
+                head: head,
+                _marker: PhantomData,
+            }
         }
-    }
+    }  
+    
 }
 
-impl<T: ListEntry> Iterator for ReverseListIterator<T> {
-    type Item = *mut ListHead; // Yield raw pointer
+impl<'a, T: ListEntry> Iterator for ReverseListIterator<'a, T> {
+    type Item = &'a mut T; // Yield raw pointer
 
+    /// A safe method to use when modifying the list, e.g., removing elements.
+    /// or when simply iterating on it.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current == self.head {
+        if self.current == self.head{
+            //pr_info!("Iteration completed");
             return None;
         }
-
+        if self.current.is_null() {
+            //pr_info!("Can't reference NULL pointer");
+            return None;
+        }
+        //pr_info!("Current: {:?}, Head: {:?}\n", self.current, self.head);
         unsafe {
-            let ptr = T::from_list_head(self.current) as *mut T;
-            self.current = (*self.current).prev;
+            let prev = (*self.current).prev as *mut ListHead;  // Get next before modifying current
+
+            
+            let ptr = T::parent_from_list_head(self.current);
+            self.current = prev; //move to previous node
 
             if ptr.is_null() {
                 None
             } else {
-                Some((*ptr).get_list_head())
+                Some(&mut *ptr)
             }
         }
     }
+
 }
