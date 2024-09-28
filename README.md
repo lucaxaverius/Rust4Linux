@@ -67,6 +67,7 @@ We created Rust bindings for the `jiffies` kernel functions, which provide a way
   - We wrote a Rust abstraction in `jiffies.rs` to call these functions safely from Rust code.
   - This required including the relevant kernel header and writing the Rust bindings to map to the C functions.
 
+
 ### Kernel Linked List Module in Rust and C
 
 -  **Overview** <br />
@@ -102,3 +103,4 @@ We created Rust bindings for the `jiffies` kernel functions, which provide a way
   1. Load the Rust kernel module.
   2. Execute the C test module to observe the comparison results.
   3. Check the output for any discrepancies in behavior or performance.
+
