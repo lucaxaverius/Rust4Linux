@@ -67,3 +67,38 @@ We created Rust bindings for the `jiffies` kernel functions, which provide a way
   - We wrote a Rust abstraction in `jiffies.rs` to call these functions safely from Rust code.
   - This required including the relevant kernel header and writing the Rust bindings to map to the C functions.
 
+### Kernel Linked List Module in Rust and C
+
+-  **Overview** <br />
+   This project implements a kernel linked list module in both Rust and C to provide a comparison of performance and behavior. The Rust module, `linked_list_test.rs`, utilizes Rust bindings to Linux kernel functions, defined in `linked_list.rs` for manipulating linked lists. 
+  - Meanwhile, the C module, `c_ll_test.c`, performs the same operations using native C functions. This setup enables a direct comparison of the linked list operations across the two languages.
+
+-  **Structure**
+  - `linked_list.rs` <br />
+  This Rust module provides functionality for creating, manipulating, and iterating over a kernel linked list, analogous to the Linux kernel's `list_head` structure and related macros/functions in C. Key features include:
+    - Creation and initialization of linked lists using `ListHead`.
+    - Insertion of elements at the start or end of the list.
+    - Iteration over the list in forward and reverse directions using custom iterators.
+    - Safe abstraction over unsafe kernel calls, with explicit safety documentation for each function.
+    - Integration with kernel bindings for underlying operations.
+
+  - `linked_list_test.rs` <br />
+    The C module mirrors the Rust implementation by performing the same linked list operations using the native Linux kernel API:
+      - Creation and initialization of the `struct ListHead`.
+      - Adding and removing elements.
+      - Forward and reverse iteration of the list.
+
+  - `c_ll_test.c` <br />
+    The C module mirrors the Rust implementation by performing the same linked list operations using directly the native Linux kernel API.
+
+
+- **Comparison** <br />
+  The purpose of this project is to compare the two implementations in terms of:
+    - Performance: How Rust's safety guarantees and abstractions impact the speed of linked list operations.
+    - Code safety: The Rust implementation benefits from compile-time checks and explicit lifetime management, reducing the possibility of errors such as null pointer dereferencing.
+    - Ease of use: Rust provides more idiomatic and modern abstractions while ensuring memory safety.
+
+  To run the comparison:
+  1. Load the Rust kernel module.
+  2. Execute the C test module to observe the comparison results.
+  3. Check the output for any discrepancies in behavior or performance.
