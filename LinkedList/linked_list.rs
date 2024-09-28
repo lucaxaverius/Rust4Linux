@@ -9,6 +9,13 @@ use crate::pr_info;
 ///
 /// This struct corresponds to the `struct list_head` in the Linux kernel.
 /// It provides methods to manipulate the linked list.
+/// Al the examples are based on a simple struct defined as follows:
+/// ```rust
+/// struct MyListItem {
+///    list: ListHead,
+///    data: u32,
+///}
+/// ```
 #[repr(C)]
 pub struct ListHead {
     /// Pointer to the next element in the list.
@@ -22,8 +29,10 @@ impl ListHead {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the `ListHead` is properly initialized
-    /// using `init` before use.
+    /// This function returns a `ListHead` with null `next` and `prev` pointers.
+    /// The caller must ensure that this is properly initialized using `init` before
+    /// it is used, to avoid undefined behavior.
+
     pub const fn new_uninitialized() -> Self {
         ListHead {
             next: core::ptr::null_mut(),
@@ -34,6 +43,11 @@ impl ListHead {
     /// Initializes the list head.
     ///
     /// This corresponds to the `INIT_LIST_HEAD` macro in the Linux kernel.
+    /// It will initialize the `next` and `prev` pointers to point to itself.
+    ///
+    /// # Safety
+    //
+    /// This function is safe to use as long as the `ListHead` is not null.
     ///
     /// # Example
     ///
@@ -55,10 +69,16 @@ impl ListHead {
     ///
     /// * `new` - Pointer to the new list entry.
     ///
+    /// # Safety
+    ///
+    /// The `new` parameter must not be null and must point to a valid, initialized `ListHead`.
+    /// The list head on which `add` is called must also be properly initialized.
+    ///
     /// # Example
     ///
     /// ```rust
-    /// head.add(&mut new_entry);
+    /// let mut item = Box::new(MyListItem::new(1001),GFP_KERNEL);
+    /// head.add(&mut item.list_head);
     /// ```
     pub fn add(&mut self, new: *mut ListHead) {
         unsafe {
@@ -77,10 +97,16 @@ impl ListHead {
     ///
     /// * `new` - Pointer to the new list entry.
     ///
+    /// # Safety
+    ///
+    /// The `new` parameter must not be null and must point to a valid, initialized `ListHead`.
+    /// The list head on which `add_tail` is called must also be properly initialized.
+    ///
     /// # Example
     ///
     /// ```rust
-    /// head.add_tail(&mut new_entry);
+    /// let mut item = Box::new(MyListItem::new(1001),GFP_KERNEL);
+    /// head.add_tail(&mut item.list_head);
     /// ```
     pub fn add_tail(&mut self, new: *mut ListHead) {
         unsafe {
@@ -99,10 +125,16 @@ impl ListHead {
     ///
     /// * `entry` - Pointer to the list entry to delete.
     ///
+    /// # Safety
+    ///
+    /// The `entry` parameter must point to a valid `ListHead` that is part of a list.
+    ///
     /// # Example
     ///
     /// ```rust
-    /// head.del(&mut entry);
+    /// let mut to_delete = Box::new(MyListItem::new(1001),GFP_KERNEL);
+    /// head.add(&mut to_delete.list_head);
+    /// head.del(&mut to_delete.list_head);
     /// ```
     pub fn del(&mut self, entry: *mut ListHead) {
         unsafe {
@@ -121,9 +153,18 @@ impl ListHead {
     /// * `old` - Pointer to the old list entry to be replaced.
     /// * `new` - Pointer to the new list entry.
     ///
+    /// # Safety
+    ///
+    /// Both `old` and `new` must point to valid, initialized `ListHead` elements.
+    /// The `old` entry must be part of a list, and the `new` entry should not already
+    /// be part of any list, or else the list structure may become corrupt.
+    ///
     /// # Example
     ///
     /// ```rust
+    /// let mut old_entry = Box::new(MyListItem::new(1001),GFP_KERNEL);
+    /// head.add(&mut old_entry.list_head);
+    /// let mut new_entry = Box::new(MyListItem::new(1002),GFP_KERNEL);
     /// head.replace(&mut old_entry, &mut new_entry);
     /// ```
     pub fn replace(&mut self, old: *mut ListHead, new: *mut ListHead) {
@@ -144,10 +185,22 @@ impl ListHead {
     /// * `old` - Pointer to the old list entry to be replaced.
     /// * `new` - Pointer to the new list entry.
     ///
+    /// # Safety
+    ///
+    /// Both `old` and `new` must point to valid `ListHead` elements. 
+    /// The `old` entry must be part of a list, and the `new` entry should not be part 
+    /// of any list to avoid list corruption. 
+    /// After the operation, the `old` entry is reinitialized and may be reused.
+    ///
     /// # Example
     ///
     /// ```rust
-    /// head.replace_init(&mut old_entry, &mut new_entry);
+    /// let mut old_entry = Box::new(MyListItem::new(1001),GFP_KERNEL);
+    /// head.add(&mut old_entry.list_head);
+    /// let mut new_entry = Box::new(MyListItem::new(1002),GFP_KERNEL);
+    /// head.replace(&mut old_entry, &mut new_entry);
+    /// old_entry.value = 1003;
+    /// head.add_tail(&mut old_entry.list_head);
     /// ```
     pub fn replace_init(&mut self, old: *mut ListHead, new: *mut ListHead) {
         unsafe {
@@ -158,7 +211,7 @@ impl ListHead {
         }
     }
 
-    /// Moves an entry to the start of the list.
+    /// Moves an entry (also from another list) to the start of the list.
     ///
     /// This corresponds to the `list_move` function in the Linux kernel.
     ///
@@ -166,11 +219,10 @@ impl ListHead {
     ///
     /// * `entry` - Pointer to the list entry to move.
     ///
-    /// # Example
+    /// # Safety
     ///
-    /// ```rust
-    /// head.move_to_start(&mut entry);
-    /// ```
+    /// The `entry` parameter must point to a valid `ListHead` that is part of a list.
+    ///
     pub fn move_to_start(&mut self, entry: *mut ListHead) {
         unsafe {
             bindings::list_move(
@@ -188,11 +240,10 @@ impl ListHead {
     ///
     /// * `entry` - Pointer to the list entry to move.
     ///
-    /// # Example
+    /// # Safety
     ///
-    /// ```rust
-    /// head.move_to_end(&mut entry);
-    /// ```
+    /// The `entry` parameter must point to a valid `ListHead` that is part of a list.
+    ///
     pub fn move_to_end(&mut self, entry: *mut ListHead) {
         unsafe {
             bindings::list_move_tail(
@@ -210,6 +261,11 @@ impl ListHead {
     ///
     /// `true` if the list is empty, `false` otherwise.
     ///
+    /// # Safety
+    ///
+    /// This function is safe to call as long as the list head has been initialized.
+    /// It will return a boolean indicating whether the list is empty.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -226,11 +282,12 @@ impl ListHead {
     /// Splices two lists.
     ///
     /// This corresponds to the `list_splice` function in the Linux kernel.
+    /// it joins two lists, this is designed for stacks
     ///
     /// # Arguments
     ///
     /// * `list` - Pointer to the source list.
-    /// * `prev` - Pointer to the position in the destination list to splice into.
+    /// * `prev` - Pointer to the place to add it in the destination list.
     ///
     /// # Example
     ///
@@ -246,29 +303,29 @@ impl ListHead {
         }
     }
 
-    /// Splices two lists and reinitializes the source list.
+    /// Splices two lists.
     ///
-    /// This corresponds to the `list_splice_init` function in the Linux kernel.
+    /// This corresponds to the `list_splice_tail` function in the Linux kernel.
+    /// it joins two lists, each list being a queue.
     ///
     /// # Arguments
     ///
     /// * `list` - Pointer to the source list.
-    /// * `prev` - Pointer to the position in the destination list to splice into.
+    /// * `prev` - Pointer to the place to add it in the destination list.
     ///
     /// # Example
     ///
     /// ```rust
     /// head.splice_init(&mut source_list, &mut prev_position);
     /// ```
-    pub fn splice_init(&mut self, list: *mut ListHead, prev: *mut ListHead) {
+    pub fn splice_tail(&mut self, list: *mut ListHead, prev: *mut ListHead) {
         unsafe {
-            bindings::list_splice_init(
+            bindings::list_splice_tail(
                 list as *mut bindings::list_head,
                 prev as *mut bindings::list_head,
             );
         }
     }
-}
 
 /// Trait to associate a struct with its `ListHead` member.
 ///
@@ -322,7 +379,7 @@ impl<'a, T: ListEntry> Iterator for ListIterator<'a, T> {
     /// or when simply iterating on it.
     fn next(&mut self) -> Option<Self::Item> {
         if self.current == self.head {
-            pr_info!("Iteration completed");
+            //pr_info!("Iteration completed");
             return None;
         }
         

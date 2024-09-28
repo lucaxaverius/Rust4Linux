@@ -1,8 +1,9 @@
 # Linked List
-Questo è un semplice modulo di test per verificare il corretto funzionamento dei bindings tra Rust e C. <br />
+Questo è un semplice modulo di test per verificare il funzionamento e le performance dei bindings tra Rust e C. <br />
 Per realizzare questo bindings è stata seguita la [patch](https://github.com/Rust-for-Linux/linux/commit/d4d791d4aac041fde6eeba0a8f9201d728b52373) del kernel in cui è stato aggiunto il supporto alle workqueue e la presentazione di Linux Foundation presente in pdf nel repository. <br />
 
-Questo per non complicare la creazione delle astrazioni ma solamente con lo scopo di testarne il funzionamento. Gli step necessari sono i seguenti:
+## How to install
+Gli step necessari sono i seguenti:
 
 1) Aggiungere a rust/bindings/binding_helpers l'header di list.
 2) Dichiarare in rust/kernel/lib.rs il nuovo modulo linked_list.
@@ -24,3 +25,7 @@ Questo per non complicare la creazione delle astrazioni ma solamente con lo scop
         sudo make install
         sudo update-grub
     ```
+
+## Obiettivo
+Il modulo è stato scritto sia Rust che in C, in modo tale da verificare le differenze di performance. <br />
+Vengono eseguite svariate operazioni scorrendo tutta la lista tenendo traccia del tempo d'esecuzione per poi confrontarlo.
