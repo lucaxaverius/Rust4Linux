@@ -326,7 +326,7 @@ impl ListHead {
             );
         }
     }
-
+}
 /// Trait to associate a struct with its `ListHead` member.
 ///
 /// This trait provides methods to retrieve the parent struct and its `ListHead` pointer.
