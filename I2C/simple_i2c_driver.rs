@@ -9,14 +9,15 @@ use kernel::{ThisModule, bindings, i2c::*, str::CStr};
 
 module! {
     type: SimpleI2CDriver,
-    name: "simple_i2c_device",
+    name: "simple_i2c_driver",
     author: "Luca Saverio Esposito",
     description: "Simple I2C driver that uses i2c-stub to simulate a real hardware interaction",
     license: "GPL",
 }
 
-struct SimpleI2CDriver;
-
+struct SimpleI2CDriver {
+    driver: I2CDriver,
+}
 // Define the device ID table for the devices you want to support
 static DEVICE_IDS: [bindings::i2c_device_id; 2] = [
     bindings::i2c_device_id {
@@ -36,14 +37,13 @@ static DEVICE_IDS: [bindings::i2c_device_id; 2] = [
 
 static ADDRESS_LIST: [u16; 2] = [0x50, 0];  // 0x50 is the I2C address used by i2c-stub
 
-
 impl kernel::Module for SimpleI2CDriver {
     fn init(module: &'static ThisModule) -> Result<Self> {
         pr_info!("Simple I2C driver loaded\n");
 
         // Create and register the I2C driver
         let driver = I2CDriver::new(
-            CStr::from_bytes_with_nul(b"simple_i2c_device\0").unwrap().as_ptr() as *const i8,
+            CStr::from_bytes_with_nul(b"simple_i2c_driver\0").unwrap().as_ptr() as *const i8,
             Some(probe_function),
             None, // Remove function can be added later
             module.as_ptr(),
@@ -52,12 +52,15 @@ impl kernel::Module for SimpleI2CDriver {
         );
         unsafe { driver.register_driver(module.as_ptr())? };
 
-        Ok(SimpleI2CDriver)
+        Ok(SimpleI2CDriver{driver})
     }
 }
 
 impl Drop for SimpleI2CDriver {
     fn drop(&mut self) {
+        unsafe {
+            self.driver.remove_driver();
+        }
         pr_info!("Simple I2C driver unloaded\n");
     }
 }
@@ -68,7 +71,6 @@ unsafe extern "C" fn probe_function(client: *mut bindings::i2c_client) -> i32 {
         // Pass adapter and address
         I2CClient::new((*client).adapter, (*client).addr) 
     };    
-    pr_info!("I2C device probed\n");
 
     // Write a single byte to register 0x01
     if let Err(e) = unsafe{device.write_byte(0x01, 0xAB)} {
@@ -81,6 +83,32 @@ unsafe extern "C" fn probe_function(client: *mut bindings::i2c_client) -> i32 {
         Ok(value) => pr_info!("Read byte from register 0x01: 0x{:X}\n", value),
         Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
     }
+
+    // Write a single byte to register 0x01
+    if let Err(e) = unsafe{device.write_byte(0x01, 0xCC)} {
+        pr_err!("Failed to write byte: {:?}\n", e);
+        return -EINVAL.to_errno();
+    }
+
+    // Read back the byte from the same register
+    match unsafe{device.read_byte(0x01)} {
+        Ok(value) => pr_info!("Read byte from register 0x01: 0x{:X}\n", value),
+        Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
+    }
+    
+    // Write a single byte to register 0x01
+    if let Err(e) = unsafe{device.write_byte(0x02, 0x12)} {
+        pr_err!("Failed to write byte: {:?}\n", e);
+        return -EINVAL.to_errno();
+    }
+
+    // Read back the byte from the same register
+    match unsafe{device.read_byte(0x02)} {
+        Ok(value) => pr_info!("Read byte from register 0x02: 0x{:X}\n", value),
+        Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
+    }
+    
+    pr_info!("I2C device probed\n");
 
     0
 }

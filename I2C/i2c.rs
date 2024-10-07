@@ -108,12 +108,17 @@ impl I2CClient {
     /// This function performs an unsafe FFI call to `i2c_smbus_read_byte_data` and should be
     /// used with valid pointers and register addresses.
     pub unsafe fn read_byte(&self, reg: u8) -> Result<u8> {
-        let result = unsafe{bindings::i2c_smbus_read_byte_data(self.ptr, reg)};
-            if result < 0 {
-                return Err(EINVAL);
-            }
-            Ok(result as u8)
-        
+        // Ensure that self.ptr is valid
+        if self.ptr.is_null() {
+            return Err(EINVAL);
+        }
+
+        // Call the unsafe function within an unsafe block
+        let result = unsafe { bindings::i2c_smbus_read_byte_data(self.ptr, reg) };
+        if result < 0 {
+            return Err(EINVAL);
+        }
+        Ok(result as u8)
     }
 
     /// Writes a byte to the specified I2C device register.
@@ -128,6 +133,11 @@ impl I2CClient {
     /// This function performs an unsafe FFI call to `i2c_smbus_write_byte_data` and should be
     /// used with valid pointers and register addresses.
     pub unsafe fn write_byte(&self, reg: u8, value: u8) -> Result {
+        // Ensure that self.ptr is valid
+        if self.ptr.is_null() {
+            return Err(EINVAL);
+        }
+        
         let res = unsafe{bindings::i2c_smbus_write_byte_data(self.ptr, reg, value as u8)};
         if res < 0 {
             return Err(EINVAL);
@@ -212,3 +222,6 @@ impl I2CDriver {
     }
 }
 
+/// Implement Send and Sync for I2CDriver
+unsafe impl Send for I2CDriver {}
+unsafe impl Sync for I2CDriver {}
