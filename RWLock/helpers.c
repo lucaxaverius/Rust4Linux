@@ -37,6 +37,7 @@
 #include <linux/workqueue.h>
 #include <linux/mentor.h>
 #include <linux/list.h>
+#include <linux/i2c.h>
 #include <linux/rwlock.h>
 
 __noreturn void rust_helper_BUG(void)
@@ -300,6 +301,45 @@ void rust_helper_write_unlock(rwlock_t *lock)
 EXPORT_SYMBOL_GPL(rust_helper_write_unlock);
 
 //------------ END HELPERS FOR RWLOCK.H -----------------
+
+//------------ START HELPERS FOR I2C.H -----------------
+void rust_helper_i2c_add_adapter(struct i2c_adapter *adapter)
+{
+    i2c_add_adapter(adapter);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_add_adapter);
+
+void rust_helper_i2c_del_adapter(struct i2c_adapter *adapter)
+{
+    i2c_del_adapter(adapter);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_del_adapter);
+
+s32 rust_helper_i2c_smbus_read_byte_data(struct i2c_client *client, u8 command)
+{
+    return i2c_smbus_read_byte_data(client, command);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_smbus_read_byte_data);
+
+s32 rust_helper_i2c_smbus_write_byte_data(struct i2c_client *client, u8 command, u8 value)
+{
+    return i2c_smbus_write_byte_data(client, command, value);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_smbus_write_byte_data);
+
+int rust_helper_i2c_register_driver(struct module *module, struct i2c_driver *driver)
+{
+    return i2c_register_driver(module, driver);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_register_driver);
+
+void rust_helper_i2c_del_driver(struct i2c_driver *driver)
+{
+    i2c_del_driver(driver);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_del_driver);
+
+//------------ END HELPERS FOR I2C.H -----------------
 
 
 /*

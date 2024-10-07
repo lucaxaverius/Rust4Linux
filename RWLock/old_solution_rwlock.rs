@@ -88,14 +88,28 @@ pub use new_rwlock;
 /// ```
 ///
 /// [`rwlock_t`]: srctree/include/linux/rwlock.h
-pub type RwLock<T> = super::Lock<T, RwLockBackend>;
+pub type RwLock<T> = super::Lock<T, RwBackend>;
 
 /// A kernel `rwlock_t` lock backend.
-pub struct RwLockBackend;
+pub struct RwBackend;
+
+/// Used to track if the lock is a read/or write lock
+pub struct LockType {
+    is_read: bool,  // Track if the lock is a read lock
+}
+
+impl LockType {
+    /// Returns true if the lock is a read lock, false if it's a write lock.
+    pub fn is_read_lock(&self) -> bool {
+        self.is_read
+    }
+}
+
+
 
 // SAFETY: The underlying kernel `rwlock_t` object ensures mutual exclusion for writers
 // and allows multiple readers.
-unsafe impl super::Backend for RwLockBackend {
+unsafe impl super::Backend for RwBackend {
     type State = bindings::rwlock_t;
     type GuardState = ();
 
@@ -122,12 +136,12 @@ unsafe impl super::Backend for RwLockBackend {
     }
 }
 
-unsafe impl super::RwBackend for RwLockBackend {
+unsafe impl super::RWLockBackend for RwBackend {
     unsafe fn read_lock(ptr: *mut Self::State) -> Self::GuardState {
-        unsafe {bindings::read_lock(ptr)};
+        bindings::read_lock(ptr);
     }
 
     unsafe fn read_unlock(ptr: *mut Self::State, _guard_state: &Self::GuardState) {
-        unsafe {bindings::read_unlock(ptr)}
+        bindings::read_unlock(ptr);
     }
 }

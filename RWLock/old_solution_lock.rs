@@ -12,7 +12,7 @@ use macros::pin_data;
 
 pub mod mutex;
 pub mod spinlock;
-//pub mod rwlock;
+pub mod rwlock;
 /// The "backend" of a lock.
 ///
 /// It is the actual implementation of the lock, without the need to repeat patterns used in all
@@ -77,12 +77,60 @@ pub unsafe trait Backend {
     }
 }
 
+// ---RWLock PATCH-START---
+/// A backend that supports both read and write locks.
+///
+/// # Safety
+///
+/// Implementers must ensure that:
+/// - A read lock allows multiple readers but no writers.
+/// - A write lock ensures exclusive access to the lock.
+pub unsafe trait RWLockBackend: Backend {
+    type LockType;
+    /// Acquires the lock for reading.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that [`Backend::init`] has been previously called.
+    #[must_use]
+    unsafe fn read_lock(ptr: *mut Self::State) -> Self::GuardState;
+
+    /// Releases the read lock.
+    ///
+    /// # Safety
+    ///
+    /// It must only be called by the current owner of the read lock.
+    unsafe fn read_unlock(ptr: *mut Self::State, guard_state: &Self::GuardState);
+}
+
+
+/// A marker trait to differentiate between RWLock and Regular Locks.
+pub trait IsRWLock {
+    fn is_rwlock() -> bool;
+}
+
+/// Marker for read-write locks.
+pub struct RWLockMarker;
+
+/// Marker for rust-kernele-native locks (spinlock and mutex).
+pub struct RegularLockMarker;
+
+impl IsRWLock for RWLockMarker {
+    fn is_rwlock() -> bool { true }
+}
+
+impl IsRWLock for RegularLockMarker {
+    fn is_rwlock() -> bool { false }
+}
+// ---RWLock PATCH-END----
+
+
 /// A mutual exclusion primitive.
 ///
 /// Exposes one of the kernel locking primitives. Which one is exposed depends on the lock
 /// [`Backend`] specified as the generic parameter `B`.
 #[pin_data]
-pub struct Lock<T: ?Sized, B: Backend> {
+pub struct Lock<T: ?Sized, B: Backend, M: IsRWLock> {
     /// The kernel lock object.
     #[pin]
     state: Opaque<B::State>,
@@ -95,6 +143,10 @@ pub struct Lock<T: ?Sized, B: Backend> {
 
     /// The data protected by the lock.
     pub(crate) data: UnsafeCell<T>,
+
+    /// Marker added to track lock type
+    _marker: PhantomData<M>,    
+
 }
 
 // SAFETY: `Lock` can be transferred across thread boundaries iff the data it protects can.
@@ -130,14 +182,37 @@ impl<T: ?Sized, B: Backend> Lock<T, B> {
     }
 }
 
+// ---RWLock PATCH-START---
+impl<T: ?Sized, B: RWLockBackend> Lock<T, B> {
+    /// Acquires the lock for reading.
+    pub fn read_lock(&self) -> Guard<'_, T, B> {
+        // SAFETY: The constructor of the type calls `init`, so the existence of the object proves
+        // that `init` was called.
+        let state = unsafe { B::read_lock(self.state.get()) };
+        // SAFETY: The lock was just acquired.
+        unsafe { Guard::new(self, state) }
+    }
+
+    /// Acquires the lock for writing.
+    pub fn write_lock(&self) -> Guard<'_, T, B> {
+        // SAFETY: The constructor of the type calls `init`, so the existence of the object proves
+        // that `init` was called.
+        let state = unsafe { B::lock(self.state.get()) };
+        // SAFETY: The lock was just acquired.
+        unsafe { Guard::new(self, state) }
+    }
+}
+// ---RWLock PATCH-END----
+
+
 /// A lock guard.
 ///
 /// Allows mutual exclusion primitives that implement the [`Backend`] trait to automatically unlock
 /// when a guard goes out of scope. It also provides a safe and convenient way to access the data
 /// protected by the lock.
 #[must_use = "the lock unlocks immediately when the guard is unused"]
-pub struct Guard<'a, T: ?Sized, B: Backend> {
-    pub(crate) lock: &'a Lock<T, B>,
+pub struct Guard<'a, T: ?Sized, B: Backend, M: IsRWLock> {
+    pub(crate) lock: &'a Lock<T, B>,  // Reference to the lock
     pub(crate) state: B::GuardState,
     _not_send: PhantomData<*mut ()>,
 }
@@ -174,7 +249,8 @@ impl<T: ?Sized, B: Backend> core::ops::DerefMut for Guard<'_, T, B> {
     }
 }
 
-impl<T: ?Sized, B: Backend> Drop for Guard<'_, T, B> {
+/// Drop implementation for native locks.
+impl<T: ?Sized, B: Backend> Drop for Guard<'_, T, B, RegularLockMarker> {
     fn drop(&mut self) {
         // SAFETY: The caller owns the lock, so it is safe to unlock it.
         unsafe { B::unlock(self.lock.state.get(), &self.state) };
@@ -195,3 +271,47 @@ impl<'a, T: ?Sized, B: Backend> Guard<'a, T, B> {
         }
     }
 }
+
+
+// ---RWLock PATCH-START---
+impl<T: ?Sized, B: RWLockBackend> Drop for Guard<'_, T, B, RWLockMarker> {
+    fn drop(&mut self) {
+        if self.state.is_read_lock() {
+            // SAFETY: The caller owns the read lock, so it is safe to unlock it.
+            unsafe { B::read_unlock(self.lock.state.get(), &self.state) };
+        } else {
+            // SAFETY: The caller owns the write lock, so it is safe to unlock it.
+            unsafe { B::unlock(self.lock.state.get(), &self.state) };
+        }
+    }
+}
+
+impl<'a, T: ?Sized, B: RWLockBackend> Guard<'a, T, B> {
+    /// Constructs a new immutable read lock guard.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that it owns the read lock.
+    pub(crate) unsafe fn new_read(lock: &'a Lock<T, B>, state: B::GuardState) -> Self {
+        Self {
+            lock,
+            state,
+            _not_send: PhantomData,
+        }
+    }
+
+    /// Constructs a new immutable write lock guard.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that it owns the write lock.
+    pub(crate) unsafe fn new_write(lock: &'a Lock<T, B>, state: B::GuardState) -> Self {
+        Self {
+            lock,
+            state,
+            _not_send: PhantomData,
+        }
+    }
+}
+// ---RWLock PATCH-END----
+
