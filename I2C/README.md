@@ -62,7 +62,7 @@ It is located in `\linux\drivers\i2c`, to load it:
 >
 This creates a virtual I2C bus with a device at address `0x50`.
 ### 2. Load the Simple I2C Test Driver
->sudo insmod simple_i2c_test_driver.ko 
+> sudo insmod simple_i2c_driver.ko 
 > 
 ### 3. Instantiate the I2C Device via Sysfs
 Manually create the I2C device to trigger the driver's probe function.
