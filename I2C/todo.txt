@@ -1,0 +1,1 @@
+1) Check new function, are you sure about ffi_init and copy_nonoverlapping.

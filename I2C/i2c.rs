@@ -7,8 +7,81 @@
 
 use kernel::prelude::*;
 use kernel::bindings;
-use kernel::error::{Error, Result};
-use crate::{types::Opaque};
+use kernel::error::{Error, Result, to_result};
+
+use crate::{init::PinInit,types::Opaque,pin_init};
+use core::ptr;
+
+
+/// This structure represent the C `i2c_msg` struct.
+/// It is the low level representation of one segment of an I2C transaction.
+#[repr(C)]
+pub struct I2CMsg {
+    addr: u16,
+    flags: u16,
+    len: u16,
+    buf: *mut u8,
+}
+
+impl I2CMsg {
+    /// Creates a new `I2CMsg` instance.
+    /// 
+    /// # Arguments
+    /// * `addr` - Slave address, either 7 or 10 bits.
+    /// * `flags` - Flags for the message.
+    /// * `buf` - Buffer to read from or write to.
+    /// 
+    /// # Returns
+    /// * `I2CMsg` instance with the provided parameters.
+    /// 
+    /// # Safety
+    /// The caller must ensure that the buffer remains valid while the `I2CMsg` is in use.
+    pub fn new(addr: u16, flags: u16, buf: &mut [u8]) -> Self {
+        I2CMsg {
+            addr,
+            flags,
+            len: buf.len() as u16,
+            buf: buf.as_mut_ptr(),
+        }
+    }
+
+    /// I2C message flag for reading data (from slave to master).
+    pub const I2C_M_RD: u16 = 0x0001;
+    /// I2C message flag for 10-bit chip address.
+    pub const I2C_M_TEN: u16 = 0x0010;
+    /// I2C message flag indicating the buffer is DMA safe.
+    pub const I2C_M_DMA_SAFE: u16 = 0x0200;
+    /// I2C message flag indicating the message length will be first received byte.
+    pub const I2C_M_RECV_LEN: u16 = 0x0400;
+    /// I2C message flag to skip the ACK/NACK bit in read message.
+    pub const I2C_M_NO_RD_ACK: u16 = 0x0800;
+    /// I2C message flag to treat NACK from client as ACK.
+    pub const I2C_M_IGNORE_NAK: u16 = 0x1000;
+    /// I2C message flag to toggle the Rd/Wr bit.
+    pub const I2C_M_REV_DIR_ADDR: u16 = 0x2000;
+    /// I2C message flag to skip repeated start sequence.
+    pub const I2C_M_NOSTART: u16 = 0x4000;
+    /// I2C message flag to force a STOP condition after the message.
+    pub const I2C_M_STOP: u16 = 0x8000;
+
+    /// Returns a reference to the buffer as a slice. It can be used to read the buffer.
+    /// 
+    /// # Safety
+    /// The caller must ensure that `buf` is a valid pointer and `len` is accurate.
+    pub fn read_from_buf(&self) -> &[u8] {
+        // SAFETY: Caller must ensure buffer and length are valid.
+        unsafe { alloc::slice::from_raw_parts(self.buf, self.len as usize) }
+    }
+
+    /// Returns a mutable reference to the buffer as a slice. It can be used to read and write the buffer.
+    /// 
+    /// # Safety
+    /// The caller must ensure that `buf` is a valid pointer and `len` is accurate.
+    pub fn write_to_buf(&mut self) -> &mut [u8] {
+        // SAFETY: Caller must ensure buffer and length are valid.
+        unsafe { alloc::slice::from_raw_parts_mut(self.buf, self.len as usize) }
+    }
+}
 
 /// This structure wraps the C `i2c_adapter` struct.
 /// It is used to identify a physical i2c bus along
@@ -31,11 +104,36 @@ impl I2CAdapter {
         let adapter_ptr = unsafe { bindings::i2c_get_adapter(bus_number) };
 
         if adapter_ptr.is_null() {
-            Err(Error::EINVAL)
+            Err(EINVAL)
         } else {
-            // Safety: The pointer is non-null, so it's safe to create an I2CAdapter instance.
-            Ok(I2CAdapter(unsafe { Opaque::new(adapter_ptr) }))
+            // Safety: The pointer is non-null and valid, so we can use ffi_init to safely initialize the Opaque instance.
+            pin_init!(I2CAdapter {
+                // SAFETY: We have verified that `adapter_ptr` is non-null and valid.
+                0 <- Opaque::ffi_init(|opaque_ptr| unsafe {
+                    core::ptr::copy_nonoverlapping(adapter_ptr, opaque_ptr, 1);
+                }),
+            })    
         }
+    }
+
+
+    /// Executes an I2C transfer.
+    /// 
+    /// # Arguments
+    /// * `msgs` - A slice of `I2CMsg` instances representing the messages to be transferred.
+    /// 
+    /// # Returns
+    /// * `Ok(usize)` if the transfer is successful, indicating the number of messages transferred.
+    /// * `Err(Error)` if an error occurs during the transfer.
+    pub fn transfer(&self, msgs: &mut [I2CMsg]) -> Result<usize> {
+        let ret = unsafe {
+            bindings::i2c_transfer(
+                self.0.get(),
+                msgs.as_mut_ptr() as *mut bindings::i2c_msg,
+                msgs.len() as i32,
+            )
+        };
+        to_result(ret).map(|_| ret as usize)
     }
 }
 
@@ -104,34 +202,59 @@ impl I2CClient {
     /// * `Err(Error)` if the client cannot be created (i.e., error pointer returned).
     pub fn new(adapter: &I2CAdapter, board_info: &I2CBoardInfo) -> Result<I2CClient> {
         // Safety: Calling the C API `i2c_new_client_device` which returns a pointer to `i2c_client` or an error pointer.
-        let client_ptr = unsafe { bindings::i2c_new_client_device(adapter.0.as_ptr(), board_info.0.as_ptr()) };
+        let client_ptr = unsafe { bindings::i2c_new_client_device(adapter.0.get(), board_info.0.get()) };
 
         if client_ptr.is_null() || (client_ptr as isize) < 0 {
             Err(EINVAL)
         } else {
             // Safety: The pointer is non-null and valid, so it's safe to create an I2CClient instance.
-            Ok(I2CClient(unsafe { Opaque::new(client_ptr) }))
-        }
+            pin_init!(I2CClient {
+                // SAFETY: We have verified that `client_ptr` is non-null and valid.
+                0 <- Opaque::ffi_init(|opaque_ptr| unsafe {
+                    core::ptr::copy_nonoverlapping(client_ptr, opaque_ptr, 1);
+                }),
+            })   
+          }
     }
 
 
     /// Sends a single message to the I2C client device.
     /// 
     /// # Arguments
-    /// * `buf` - A buffer containing the data to be sent. Must be shorter than 2^16 since msg.len is u16.
+    /// * `buf` - A buffer containing the data to be sent. Must be less than 2^16 since msg.len is u16.
     /// 
     /// # Returns
     /// * `Ok(usize)` if the data is successfully sent, indicating the number of bytes written.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn master_send(&self, buf: &[u8]) -> Result<usize> {
         if buf.len() > u16::MAX as usize {
-            return Err(Error::EINVAL);
+            return Err(EINVAL);
         }
-        let ret = unsafe { bindings::i2c_master_send(self.0.as_ptr(), buf.as_ptr() as *const i8, buf.len() as i32) };
-        Error::to_result(ret).map(|_| ret as usize)
+        let ret = unsafe { bindings::i2c_master_send(self.0.get(), buf.get() as *const i8, buf.len() as i32) };
+        // this.map is used to convert the OK() to usize
+        to_result(ret).map(|_| ret as usize)
     }
 
-    /// Writes a single byte to the I2C client device.
+    /// Receives data from the I2C client device.
+    /// 
+    /// # Arguments
+    /// * `buf` - A buffer to store the received data. Must be less than 2^16 since msg.len is u16.
+    /// 
+    /// # Returns
+    /// * `Ok(usize)` if the data is successfully received, indicating the number of bytes read.
+    /// * `Err(Error)` if an error occurs during reception.
+    pub fn master_recv(&self, buf: &mut [u8]) -> Result<usize> {
+        if buf.len() > u16::MAX as usize {
+            return Err(EINVAL);
+        }
+        let ret = unsafe { bindings::i2c_master_recv(self.0.get(), buf.as_mut_ptr() as *mut i8, buf.len() as i32) };
+        to_result(ret).map(|_| ret as usize)
+    }
+
+    /// This executes the SMBus "send byte" protocol. 
+    /// Writes a single byte to the I2C client device without specifying a device register.
+    /// Some devices are so simple that this interface is enough; 
+    /// for others, it is a shorthand if you want to read the same register as in the previous SMBus command.
     /// 
     /// # Arguments
     /// * `value` - The byte value to be written.
@@ -139,10 +262,144 @@ impl I2CClient {
     /// # Returns
     /// * `Ok(())` if the byte is successfully written.
     /// * `Err(Error)` if an error occurs during transmission.
-    pub fn write_byte(&self, value: u8) -> Result<()> {
-        let ret = unsafe { bindings::i2c_smbus_write_byte(self.0.as_ptr(), value as i32) };
-        Error::to_result(ret)
+    pub fn send_byte(&self, value: u8) -> Result<()> {
+        let ret = unsafe { bindings::i2c_smbus_write_byte(self.0.get(), value) };
+        to_result(ret)
     }
+
+    /// This executes the SMBus "receive byte" protocol.
+    /// Reads a single byte from the I2C client device without specifying a device register. 
+    /// Some devices are so simple that this interface is enough; 
+    /// for others, it is a shorthand if you want to read the same register as in the previous SMBus command.
+    ///
+    /// # Returns
+    /// * `Ok(u8)` if the byte is successfully read.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn receive_byte(&self) -> Result<u8> {
+        let ret = unsafe { bindings::i2c_smbus_read_byte(self.0.get()) };
+        if ret < 0 {
+            to_result(ret)
+        } else {
+            Ok(ret as u8)
+        }
+    }
+
+    /// This executes the SMBus "write byte" protocol with a command.
+    /// Writes a byte to a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command to which the byte should be written.
+    /// * `value` - The byte value to be written.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the byte is successfully written.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn write_byte(&self, command: u8, value: u8) -> Result<()> {
+        let ret = unsafe { bindings::i2c_smbus_write_byte_data(self.0.get(), command as i32, value as i32) };
+        to_result(ret)
+    }
+
+    /// This executes the SMBus "read byte" protocol with a command.
+    /// Reads a byte from a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command from which the byte should be read.
+    ///
+    /// # Returns
+    /// * `Ok(u8)` if the byte is successfully read.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn read_byte(&self, command: u8) -> Result<u8> {
+        let ret = unsafe { bindings::i2c_smbus_read_byte_data(self.0.get(), command as i32) };
+        if ret < 0 {
+            to_result(ret)
+        } else {
+            Ok(ret as u8)
+        }
+    }
+
+    /// This executes the SMBus "write word" protocol with a command.
+    /// Writes a word to a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command to which the word should be written.
+    /// * `value` - The word value to be written.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the word is successfully written.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn write_word(&self, command: u8, value: u16) -> Result<()> {
+        let ret = unsafe { bindings::i2c_smbus_write_word_data(self.0.get(), command as i32, value as i32) };
+        to_result(ret)
+    }
+
+    /// This executes the SMBus "read word" protocol with a command.
+    /// Reads a word from a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command from which the word should be read.
+    ///
+    /// # Returns
+    /// * `Ok(u16)` if the word is successfully read.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn read_word(&self, command: u8) -> Result<u16> {
+        let ret = unsafe { bindings::i2c_smbus_read_word_data(self.0.get(), command as i32) };
+        if ret < 0 {
+            to_result(ret)
+        } else {
+            Ok(ret as u16)
+        }
+    }
+
+    /// This executes the SMBus "block write" protocol with a command.
+    /// Writes a block of data to a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command to which the block should be written.
+    /// * `values` - The block of data to be written (maximum 32 bytes).
+    ///
+    /// # Returns
+    /// * `Ok(())` if the block is successfully written.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn write_block(&self, command: u8, values: &[u8]) -> Result<()> {
+        if values.len() > 32 {
+            return Err(EINVAL);
+        }
+        let ret = unsafe {
+            bindings::i2c_smbus_write_block_data(
+                self.0.get(),
+                command as i32,
+                values.len() as u8,
+                values.as_ptr() as *const u8,
+            )
+        };
+        to_result(ret)
+    }
+
+    /// This executes the SMBus "block read" protocol with a command.
+    /// Reads a block of data from a specific register (command) of the I2C client device.
+    ///
+    /// # Arguments
+    /// * `command` - The register/command from which the block should be read.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` if the block is successfully read.
+    /// * `Err(Error)` if an error occurs during transmission.
+    pub fn read_block(&self, command: u8) -> Result<Vec<u8>> {
+        let mut values = [0u8; 32];
+        let ret = unsafe {
+            bindings::i2c_smbus_read_block_data(
+                self.0.get(),
+                command as i32,
+                values.as_mut_ptr() as *mut i8,
+            )
+        };
+        if ret < 0 {
+            to_result(ret)
+        } else {
+            Ok(values[..ret as usize].to_vec())
+        }
+    }
+
 }
 
 
@@ -164,8 +421,8 @@ impl I2CDriver {
     /// * `Ok(())` if the driver is successfully registered.
     /// * `Err(Error)` if registration fails.
     pub fn add_driver(driver: &I2CDriver) -> Result<()> {
-        let ret = unsafe { bindings::i2c_add_driver(driver.0.as_ptr()) };
-        Error::to_result(ret)
+        let ret = unsafe { bindings::i2c_add_driver(driver.0.get()) };
+        to_result(ret)
     }
 
     /// Unregisters the I2C driver from the kernel.
@@ -173,7 +430,7 @@ impl I2CDriver {
     /// # Arguments
     /// * `driver` - The I2C driver to be unregistered.
     pub fn del_driver(driver: &I2CDriver) {
-        unsafe { bindings::i2c_del_driver(driver.0.as_ptr()) };
+        unsafe { bindings::i2c_del_driver(driver.0.get()) };
     }
 }
 
@@ -186,7 +443,7 @@ unsafe impl Sync for I2CDriver {}
 pub struct I2CDriverBuilder {
     class: Option<u32>,
     probe: unsafe extern "C" fn(client: *mut bindings::i2c_client) -> i32,
-    remove: unsafe extern "C" fn(client: *mut bindings::i2c_client)>,
+    remove: unsafe extern "C" fn(client: *mut bindings::i2c_client),
     shutdown: Option<unsafe extern "C" fn(client: *mut bindings::i2c_client)>,
     alert: Option<unsafe extern "C" fn(client: *mut bindings::i2c_client, protocol: bindings::i2c_alert_protocol, data: u32)>,
     command: Option<unsafe extern "C" fn(client: *mut bindings::i2c_client, cmd: u32, arg: *mut core::ffi::c_void) -> i32>,
@@ -207,7 +464,7 @@ impl I2CDriverBuilder {
         id_table: *const bindings::i2c_device_id,
     ) -> Self {
         let mut driver: bindings::device_driver = unsafe { core::mem::zeroed() };
-        driver.name = driver_name.as_ptr() as *const i8;
+        driver.name = driver_name.as_ptr() as *const u8;
         driver.owner = owner;
         Self {
             class: None,
