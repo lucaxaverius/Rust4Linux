@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: GPL-2.0
 
-//! Linked List Test Module
+//! I2C Driver Module
 /// uses i2c rust api to interact with i2c-stub
 use kernel::prelude::*;
 use kernel::{ThisModule, bindings, i2c::*, str::CStr};

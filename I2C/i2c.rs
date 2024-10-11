@@ -2,15 +2,16 @@
 
 //! I2C support.
 //!
-//! This module contains the kernel APIs related to I2C that have b>
+//! This module contains the kernel APIs related to I2C that have been
 //! wrapped for usage by Rust code in the kernel.
 
 use kernel::prelude::*;
 use kernel::bindings;
 use kernel::error::{Error, Result, to_result};
-
-use crate::{init::PinInit,types::Opaque,pin_init};
+use crate::{types::Opaque};
+//use crate::{init::PinInit,pin_init};
 use core::ptr;
+use core::ffi::c_char;
 
 
 /// This structure represent the C `i2c_msg` struct.
@@ -86,12 +87,13 @@ impl I2CMsg {
 /// This structure wraps the C `i2c_adapter` struct.
 /// It is used to identify a physical i2c bus along
 /// with the access algorithms necessary to access it.
-#[repr(transparent)]
-pub struct I2CAdapter(Opaque<bindings::i2c_adapter>);
-
+pub struct I2CAdapter {
+    ptr: *mut bindings::i2c_adapter,
+}
 
 impl I2CAdapter {
     /// Attempts to get an I2C adapter from a given bus number.
+    /// Effectively owns a reference to the adapter
     /// 
     /// # Arguments
     /// * `bus_number` - The bus number for which the I2C adapter is requested.
@@ -99,20 +101,15 @@ impl I2CAdapter {
     /// # Returns
     /// * `Ok(I2CAdapter)` if an adapter is found.
     /// * `Err(Error)` if the adapter cannot be found (i.e., null pointer returned).
-    pub fn get_from_bus_number(bus_number: i32) -> Result<I2CAdapter> {
+    pub fn get_from_bus_number(bus_number: i32) -> Result<Self> {
         // Safety: Calling the C API `i2c_get_adapter` which returns a pointer to `i2c_adapter` or null.
         let adapter_ptr = unsafe { bindings::i2c_get_adapter(bus_number) };
 
         if adapter_ptr.is_null() {
             Err(EINVAL)
         } else {
-            // Safety: The pointer is non-null and valid, so we can use ffi_init to safely initialize the Opaque instance.
-            pin_init!(I2CAdapter {
-                // SAFETY: We have verified that `adapter_ptr` is non-null and valid.
-                0 <- Opaque::ffi_init(|opaque_ptr| unsafe {
-                    core::ptr::copy_nonoverlapping(adapter_ptr, opaque_ptr, 1);
-                }),
-            })    
+            // Safety: The pointer is non-null and valid
+            Ok(Self { adapter_ptr })
         }
     }
 
@@ -128,12 +125,18 @@ impl I2CAdapter {
     pub fn transfer(&self, msgs: &mut [I2CMsg]) -> Result<usize> {
         let ret = unsafe {
             bindings::i2c_transfer(
-                self.0.get(),
+                self.ptr(),
                 msgs.as_mut_ptr() as *mut bindings::i2c_msg,
                 msgs.len() as i32,
             )
         };
         to_result(ret).map(|_| ret as usize)
+    }
+}
+
+impl Drop for I2CAdapter {
+    fn drop(&mut self) {
+        unsafe { bindings::i2c_put_adapter(self.ptr) };
     }
 }
 
@@ -152,7 +155,7 @@ pub struct I2CBoardInfo(Opaque<bindings::i2c_board_info>);
 /// # Returns
 /// * `I2CBoardInfo` instance with the provided type and address.
 #[macro_export]
-macro_rules! I2C_BOARD_INFO {
+macro_rules! i2c_board_info {
     ($dev_type:expr, $dev_addr:expr) => {{
         I2CBoardInfo(unsafe {
             let mut info: bindings::i2c_board_info = core::mem::zeroed();
@@ -169,26 +172,31 @@ macro_rules! I2C_BOARD_INFO {
 pub struct I2CDeviceId(Opaque<bindings::i2c_device_id>);
 
 
-/// Macro to create a MODULE_DEVICE_TABLE equivalent in Rust.
+/// MODULE_DEVICE_TABLE equivalent in Rust.
+/// Creates an alias so file2alias.c can find device table.
 /// 
 /// # Arguments
 /// * `type_` - The type of the device table.
 /// * `name` - The name of the device table.
 #[macro_export]
-macro_rules! MODULE_DEVICE_TABLE {
+macro_rules! module_device_table {
     ($type_:ident, $name:ident) => {
         #[no_mangle]
-        pub static mut __mod_${type_}__${name}_device_table: *const $crate::I2CDeviceId = &$name;
+        pub static mut __mod_{$type_}__{$name}_device_table: *const $crate::I2CDeviceId = &$name;
     };
 }
 
 
 /// This structure wraps the C `i2c_client`, it represents an I2C slave device (i.e. chip)
-/// connected to ani i2c bus. 
+/// connected to any i2c bus. 
+/// When
 ///
 /// The behaviour exposed to Linux is defined by the driver managing the device.
 #[repr(transparent)]
-pub struct I2CClient(Opaque<bindings::i2c_client>);
+pub struct I2CClient {
+    ptr: *mut bindings::i2c_client,
+    owned: bool,
+}
 
 impl I2CClient {
     /// Creates a new `I2CClient` instance by calling the C function `i2c_new_client_device`.
@@ -200,7 +208,7 @@ impl I2CClient {
     /// # Returns
     /// * `Ok(I2CClient)` if the client is successfully created.
     /// * `Err(Error)` if the client cannot be created (i.e., error pointer returned).
-    pub fn new(adapter: &I2CAdapter, board_info: &I2CBoardInfo) -> Result<I2CClient> {
+    pub fn new_client_device(adapter: &I2CAdapter, board_info: &I2CBoardInfo) -> Result<Self> {
         // Safety: Calling the C API `i2c_new_client_device` which returns a pointer to `i2c_client` or an error pointer.
         let client_ptr = unsafe { bindings::i2c_new_client_device(adapter.0.get(), board_info.0.get()) };
 
@@ -208,13 +216,19 @@ impl I2CClient {
             Err(EINVAL)
         } else {
             // Safety: The pointer is non-null and valid, so it's safe to create an I2CClient instance.
-            pin_init!(I2CClient {
-                // SAFETY: We have verified that `client_ptr` is non-null and valid.
-                0 <- Opaque::ffi_init(|opaque_ptr| unsafe {
-                    core::ptr::copy_nonoverlapping(client_ptr, opaque_ptr, 1);
-                }),
-            })   
+            Ok(Self { ptr, owned: true })
           }
+    }
+
+    /// Creates a borrowed (managed by the kernel) `I2CClient` instance from a raw pointer.
+    /// 
+    /// # Arguments
+    /// * `client_ptr` - A raw pointer to an `i2c_client` struct.
+    /// 
+    /// # Safety
+    /// The caller must ensure that the pointer is valid and points to a properly initialized `i2c_client`
+    pub unsafe fn from_raw_ptr(ptr: *mut bindings::i2c_client) -> Self {
+        Self { ptr, owned: false }
     }
 
 
@@ -226,11 +240,11 @@ impl I2CClient {
     /// # Returns
     /// * `Ok(usize)` if the data is successfully sent, indicating the number of bytes written.
     /// * `Err(Error)` if an error occurs during transmission.
-    pub fn master_send(&self, buf: &[u8]) -> Result<usize> {
+    pub fn master_send(&self, buf: &[c_char]) -> Result<usize> {
         if buf.len() > u16::MAX as usize {
             return Err(EINVAL);
         }
-        let ret = unsafe { bindings::i2c_master_send(self.0.get(), buf.get() as *const i8, buf.len() as i32) };
+        let ret = unsafe { bindings::i2c_master_send(self.ptr, buf.as_ptr(), buf.len() as i32) };
         // this.map is used to convert the OK() to usize
         to_result(ret).map(|_| ret as usize)
     }
@@ -243,11 +257,11 @@ impl I2CClient {
     /// # Returns
     /// * `Ok(usize)` if the data is successfully received, indicating the number of bytes read.
     /// * `Err(Error)` if an error occurs during reception.
-    pub fn master_recv(&self, buf: &mut [u8]) -> Result<usize> {
+    pub fn master_recv(&self, buf: &mut [c_char]) -> Result<usize> {
         if buf.len() > u16::MAX as usize {
             return Err(EINVAL);
         }
-        let ret = unsafe { bindings::i2c_master_recv(self.0.get(), buf.as_mut_ptr() as *mut i8, buf.len() as i32) };
+        let ret = unsafe { bindings::i2c_master_recv(self.ptr, buf.as_mut_ptr(), buf.len() as i32) };
         to_result(ret).map(|_| ret as usize)
     }
 
@@ -263,7 +277,7 @@ impl I2CClient {
     /// * `Ok(())` if the byte is successfully written.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn send_byte(&self, value: u8) -> Result<()> {
-        let ret = unsafe { bindings::i2c_smbus_write_byte(self.0.get(), value) };
+        let ret = unsafe { bindings::i2c_smbus_write_byte(self.ptr, value) };
         to_result(ret)
     }
 
@@ -276,9 +290,9 @@ impl I2CClient {
     /// * `Ok(u8)` if the byte is successfully read.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn receive_byte(&self) -> Result<u8> {
-        let ret = unsafe { bindings::i2c_smbus_read_byte(self.0.get()) };
+        let ret = unsafe { bindings::i2c_smbus_read_byte(self.ptr) };
         if ret < 0 {
-            to_result(ret)
+            Err(Error::from_errno(ret))
         } else {
             Ok(ret as u8)
         }
@@ -295,7 +309,7 @@ impl I2CClient {
     /// * `Ok(())` if the byte is successfully written.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn write_byte(&self, command: u8, value: u8) -> Result<()> {
-        let ret = unsafe { bindings::i2c_smbus_write_byte_data(self.0.get(), command as i32, value as i32) };
+        let ret = unsafe { bindings::i2c_smbus_write_byte_data(self.ptr, command, value) };
         to_result(ret)
     }
 
@@ -309,9 +323,9 @@ impl I2CClient {
     /// * `Ok(u8)` if the byte is successfully read.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn read_byte(&self, command: u8) -> Result<u8> {
-        let ret = unsafe { bindings::i2c_smbus_read_byte_data(self.0.get(), command as i32) };
+        let ret = unsafe { bindings::i2c_smbus_read_byte_data(self.ptr, command) };
         if ret < 0 {
-            to_result(ret)
+            Err(Error::from_errno(ret))
         } else {
             Ok(ret as u8)
         }
@@ -328,7 +342,7 @@ impl I2CClient {
     /// * `Ok(())` if the word is successfully written.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn write_word(&self, command: u8, value: u16) -> Result<()> {
-        let ret = unsafe { bindings::i2c_smbus_write_word_data(self.0.get(), command as i32, value as i32) };
+        let ret = unsafe { bindings::i2c_smbus_write_word_data(self.ptr, command, value) };
         to_result(ret)
     }
 
@@ -342,9 +356,9 @@ impl I2CClient {
     /// * `Ok(u16)` if the word is successfully read.
     /// * `Err(Error)` if an error occurs during transmission.
     pub fn read_word(&self, command: u8) -> Result<u16> {
-        let ret = unsafe { bindings::i2c_smbus_read_word_data(self.0.get(), command as i32) };
+        let ret = unsafe { bindings::i2c_smbus_read_word_data(self.ptr, command) };
         if ret < 0 {
-            to_result(ret)
+            Err(Error::from_errno(ret))
         } else {
             Ok(ret as u16)
         }
@@ -366,8 +380,8 @@ impl I2CClient {
         }
         let ret = unsafe {
             bindings::i2c_smbus_write_block_data(
-                self.0.get(),
-                command as i32,
+                self.ptr,
+                command,
                 values.len() as u8,
                 values.as_ptr() as *const u8,
             )
@@ -380,29 +394,41 @@ impl I2CClient {
     ///
     /// # Arguments
     /// * `command` - The register/command from which the block should be read.
+    /// * `buf` - A mutable buffer (`&mut [u8]`) to store the data read from the slave. Maximum block size is 32 bytes.
     ///
     /// # Returns
-    /// * `Ok(Vec<u8>)` if the block is successfully read.
+    /// * `Ok(usize)` if the block is successfully read, indicating the number of bytes read.
     /// * `Err(Error)` if an error occurs during transmission.
-    pub fn read_block(&self, command: u8) -> Result<Vec<u8>> {
-        let mut values = [0u8; 32];
+    pub fn read_block(&self, command: u8, buf: &mut [u8]) -> Result<usize> {
+        // Ensure the buffer length does not exceed the maximum block size (32 bytes).
+        if buf.len() > 32 {
+            return Err(EINVAL);
+        }
+
         let ret = unsafe {
             bindings::i2c_smbus_read_block_data(
-                self.0.get(),
-                command as i32,
-                values.as_mut_ptr() as *mut i8,
+                self.ptr,
+                command,
+                buf.as_mut_ptr(),
             )
         };
+
         if ret < 0 {
-            to_result(ret)
+            Err(Error::from_errno(ret))
         } else {
-            Ok(values[..ret as usize].to_vec())
+            Ok(ret as usize)
         }
     }
 
 }
 
-
+impl Drop for I2CClient {
+    fn drop(&mut self) {
+        if self.owned {
+            unsafe { bindings::i2c_unregister_device(self.ptr) };
+        }
+    }
+}
 
 /// Represents an I2C driver.
 ///
@@ -424,15 +450,15 @@ impl I2CDriver {
         let ret = unsafe { bindings::i2c_add_driver(driver.0.get()) };
         to_result(ret)
     }
+}
 
-    /// Unregisters the I2C driver from the kernel.
-    /// 
-    /// # Arguments
-    /// * `driver` - The I2C driver to be unregistered.
-    pub fn del_driver(driver: &I2CDriver) {
+impl Drop for I2CDriver{
+    fn drop(&mut self) {
+        /// Unregisters the I2C driver from the kernel.
         unsafe { bindings::i2c_del_driver(driver.0.get()) };
     }
 }
+
 
 /// Implement Send and Sync for I2CDriver
 unsafe impl Send for I2CDriver {}
@@ -457,14 +483,14 @@ pub struct I2CDriverBuilder {
 impl I2CDriverBuilder {
     /// Creates a new `I2CDriverBuilder` instance.
     pub fn new(
-        driver_name: *const i8,
-        owner: *const bindings::module,
+        driver_name: &[c_char],
+        owner: *mut bindings::module,
         probe: unsafe extern "C" fn(client: *mut bindings::i2c_client) -> i32,
-        remove: unsafe extern "C" fn(client: *mut bindings::i2c_client) -> i32,
+        remove: unsafe extern "C" fn(client: *mut bindings::i2c_client),
         id_table: *const bindings::i2c_device_id,
     ) -> Self {
         let mut driver: bindings::device_driver = unsafe { core::mem::zeroed() };
-        driver.name = driver_name.as_ptr() as *const u8;
+        driver.name = driver_name.as_ptr();
         driver.owner = owner;
         Self {
             class: None,
@@ -523,18 +549,6 @@ impl I2CDriverBuilder {
         self
     }
 
-    /// Sets the suspend function for the driver.
-    pub fn suspend(mut self, suspend: unsafe extern "C" fn(client: *mut bindings::i2c_client, state: bindings::pm_message_t) -> i32) -> Self {
-        self.suspend = Some(suspend);
-        self
-    }
-
-    /// Sets the resume function for the driver.
-    pub fn resume(mut self, resume: unsafe extern "C" fn(client: *mut bindings::i2c_client) -> i32) -> Self {
-        self.resume = Some(resume);
-        self
-    }
-
     /// Builds the `I2CDriver` instance.
     pub fn build(self) -> Result<I2CDriver> {
         let mut driver: bindings::i2c_driver = unsafe { core::mem::zeroed() };
@@ -550,6 +564,6 @@ impl I2CDriverBuilder {
         driver.address_list = self.address_list.unwrap_or(ptr::null());
         driver.flags = self.flags.unwrap_or(0);
 
-        Ok(I2CDriver(unsafe { Opaque::new(&mut driver) }))
+        Ok(I2CDriver(Opaque::new(driver)))
     }
 }

@@ -1,1 +1,4 @@
-1) Check new function, are you sure about ffi_init and copy_nonoverlapping.
+1) Client and adpater new function, passin * ptr to Opaque new.
+2) i2c_device_id, can be manually implemented instead of using Opaque.
+3) For the opaque structure is better to use from_raw and lifetime cause 
+their not managed by rust subsys but from the kernel. Lifetime avoid access after free problems.

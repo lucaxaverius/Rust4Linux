@@ -35,7 +35,6 @@
 #include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
-#include <linux/mentor.h>
 #include <linux/list.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
@@ -205,12 +204,6 @@ rust_helper_krealloc(const void *objp, size_t new_size, gfp_t flags)
 }
 EXPORT_SYMBOL_GPL(rust_helper_krealloc);
 
-u32 rust_helper_mentor_read(u8 addr)
-{
-	return mentor_read(addr);
-}
-EXPORT_SYMBOL_GPL(rust_helper_mentor_read);
-
 //------------ START HELPERS FOR LIST.H -----------------
 
 void rust_helper_init_list_head(struct list_head *list) {
@@ -325,6 +318,13 @@ struct i2c_adapter *rust_helper_i2c_get_adapter(int bus_number)
 }
 EXPORT_SYMBOL_GPL(rust_helper_i2c_get_adapter);
 
+// Helper for i2c_put_adapter
+void rust_helper_i2c_put_adapter(struct i2c_adapter * adap)
+{
+    return i2c_put_adapter(adap);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_put_adapter);
+
 // Helper for i2c_transfer
 int rust_helper_i2c_transfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int num)
 {
@@ -338,6 +338,13 @@ struct i2c_client *rust_helper_i2c_new_client_device(struct i2c_adapter *adapter
     return i2c_new_client_device(adapter, info);
 }
 EXPORT_SYMBOL_GPL(rust_helper_i2c_new_client_device);
+
+// Helper for i2c_unregister_device
+void rust_helper_i2c_unregister_device(struct i2c_client *client)
+{
+    return i2c_unregister_device(client);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i2c_unregister_device);
 
 // Helper for i2c_master_send
 int rust_helper_i2c_master_send(struct i2c_client *client, const char *buf, int count)
@@ -422,6 +429,7 @@ int rust_helper_i2c_smbus_read_block_data(struct i2c_client *client, int command
     return i2c_smbus_read_block_data(client, command, values);
 }
 EXPORT_SYMBOL_GPL(rust_helper_i2c_smbus_read_block_data);
+
 
 //------------ END HELPERS FOR I2C.H -----------------
 
