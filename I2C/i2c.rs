@@ -8,7 +8,6 @@
 use kernel::prelude::*;
 use kernel::bindings;
 use kernel::error::{Error, Result, to_result};
-use crate::{types::Opaque};
 //use crate::{init::PinInit,pin_init};
 use core::ptr;
 use core::ffi::c_char;
@@ -217,12 +216,22 @@ unsafe impl Sync for I2CBoardInfo {}
 unsafe impl Send for I2CBoardInfo {}
 
 
-/// This structure wraps the C `i2c_device_id` struct.
-/// The last record of the struct has "" as name and 0 as data.
+/// This structure wraps a pointer to C `i2c_device_id` struct.
+///
+/// This is used to represent a table of supported I2C devices. It wraps a pointer
+/// to an array of `bindings::i2c_device_id` structs, where the last record should
+/// have an empty string for the name and `0` for the driver data, serving as a
+/// terminator in the array.
+///
+/// # Safety
+/// The caller must ensure that the underlying array of `bindings::i2c_device_id`
+/// remains valid for the lifetime of the `I2CDeviceIDArray` instance. Additionally,
+/// it must be terminated with an entry where the name is an empty string and driver
+/// data is zero.
 #[repr(transparent)]
 pub struct I2CDeviceIDArray {
-    /// contains the underlying c struct.
-    inner: *bindings::i2c_device_id,
+    /// Contains a pointer to the underlying array of `i2c_device_id` structs.
+    inner: *const bindings::i2c_device_id,
 }
 
 /// Max size of I2C device name 
@@ -240,59 +249,64 @@ const fn make_device_name(s: &[u8]) -> [c_char; I2C_NAME_SIZE] {
 }
 
 impl I2CDeviceIDArray {
-    /// Creates a new `I2CDeviceId` instance.
+
+    /// Initializes a new `I2CDeviceIDArray` instance from a pointer to a static table.
     ///
     /// # Arguments
     ///
-    /// * `name` - The name of the I2C device as a byte slice (`&[u8]`). This will be converted into a
-    ///   null-terminated C string representing the device type. The name should not exceed
-    ///   `I2C_NAME_SIZE - 1` (19 bytes) to leave room for the null terminator.
-    /// * `driver_data` - The driver-specific data for the I2C device. This field is used to pass
-    ///   additional information that may be needed by the driver.
+    /// * `table` - A pointer to a static array of `i2c_device_id` records.
     ///
     /// # Returns
     ///
-    /// An instance of `I2CDeviceId`.
+    /// An instance of `I2CDeviceIDArray` that wraps the provided pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided table pointer is valid and remains valid for the
+    /// lifetime of the `I2CDeviceIDArray`. The table must also be properly terminated.
+    pub const fn new(table: *const bindings::i2c_device_id) -> Self {
+        Self {
+            inner: table,
+        }
+    }
+
+    /// Creates a new `bindings::i2c_device_id` record.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the I2C device as a byte slice (`&[u8]`). This name will be truncated if
+    ///   it exceeds `I2C_NAME_SIZE - 1` (leaving room for the null terminator).
+    /// * `driver_data` - The driver-specific data for the I2C device.
+    ///
+    /// # Returns
+    ///
+    /// A fully-initialized `bindings::i2c_device_id` record.
     ///
     /// # Example
     ///
     /// ```
-    /// use kernel::i2c::I2CDeviceId;
-    ///
-    /// const DEVICE_ID: I2CDeviceId = I2CDeviceId::new(b"example_device", 0);
+    /// let record = I2CDeviceIDArray::new_record(b"my_i2c_device", 0);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// This function does not panic. If the provided `name` exceeds `I2C_NAME_SIZE - 1` bytes,
-    /// it will be truncated to fit.
-    pub const fn new(name: &[u8], driver_data: u64) -> bindings::i2c_device_id {
-       
+    pub const fn new_record(name: &[u8], driver_data: u64) -> bindings::i2c_device_id {
         let name_array = make_device_name(name);
-
-        // Create a new `i2c_device_id` struct and fill in the fields.
-        let inner = bindings::i2c_device_id {
+        bindings::i2c_device_id {
             name: name_array,
             driver_data,
-        };
-
-        I2CDeviceId { inner }
+        }
     }
 
-    /// Returns a copy of the inner `bindings::i2c_device_id` struct.
+    /// Returns a pointer to the internal array of `bindings::i2c_device_id`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the returned struct is used correctly and that the `I2CDeviceId`
-    /// instance remains valid as long as the data is being used.
-    pub const fn inner(&self) -> bindings::i2c_device_id {
-        self.inner
+    /// The returned pointer must not be used beyond the lifetime of the `I2CDeviceIDArray`.
+    /// Additionally, the underlying array must remain valid and properly terminated.
+    pub const fn as_ptr(&self) -> *const bindings::i2c_device_id {
+        self.inner as *const bindings::i2c_device_id
     }
 }
 
-unsafe impl Sync for I2CDeviceId {}
-unsafe impl Send for I2CDeviceId {}
-
+unsafe impl Sync for I2CDeviceIDArray {}
 
 /// Equivalent to the `MODULE_DEVICE_TABLE` macro in C.
 ///
@@ -313,10 +327,18 @@ unsafe impl Send for I2CDeviceId {}
 macro_rules! module_device_table {
     ($type_:ident, $name:ident) => {
         #[no_mangle]
-        #[export_name = concat!("__mod_", stringify!($type_), "__", stringify!($name), "_device_table")]
-        pub static __DEVICE_TABLE_ALIAS: *const $crate::i2c::I2CDeviceId = &$name as *const _;
+        #[export_name = concat!(
+            "__mod_",
+            stringify!($type_),
+            "__",
+            stringify!($name),
+            "_device_table"
+        )]
+        pub static __DEVICE_TABLE_ALIAS: $crate::i2c::I2CDeviceIDArray =
+            $crate::i2c::I2CDeviceIDArray::new($name.as_ptr());
     };
 }
+
 
 
 
@@ -565,38 +587,35 @@ impl Drop for I2CClient {
 
 /// Represents an I2C driver.
 ///
-/// This structure wraps the C `i2c_driver` struct and provides methods for driver registration
+/// This structure wraps the C `i2c_driver` struct pointer and provides methods for driver registration
 /// and deregistration with the I2C subsystem.
-#[repr(transparent)]
-pub struct I2CDriver(Opaque<bindings::i2c_driver>);
+pub struct I2CDriver {
+    driver: *mut bindings::i2c_driver,
+}
 
 impl I2CDriver {
     /// Registers the I2C driver with the kernel.
     /// 
-    /// # Arguments
-    /// * `driver` - The I2C driver to be registered.
-    /// 
     /// # Returns
     /// * `Ok(())` if the driver is successfully registered.
     /// * `Err(Error)` if registration fails.
-    pub fn add_driver(driver: &I2CDriver) -> Result<()> {
-        let ret = unsafe { bindings::i2c_add_driver(driver.0.get()) };
+    pub fn add_driver(&self) -> Result<()> {
+        let ret = unsafe { bindings::i2c_add_driver(self.driver) };
         to_result(ret)
     }
-}
 
-impl Drop for I2CDriver{
-    fn drop(&mut self) {
+    /// Deregisters the I2C driver from the kernel.
+    ///
+    /// This function calls `i2c_del_driver` to remove the driver from the I2C subsystem.
+    pub fn remove_driver(&self) {
         // Unregisters the I2C driver from the kernel.
-        unsafe { bindings::i2c_del_driver(self.0.get()) };
+        unsafe { bindings::i2c_del_driver(self.driver) };
     }
 }
-
 
 /// Implement Send and Sync for I2CDriver
 unsafe impl Send for I2CDriver {}
 unsafe impl Sync for I2CDriver {}
-
 
 /// A builder for creating an `I2CDriver` instance.
 pub struct I2CDriverBuilder {
@@ -610,6 +629,7 @@ pub struct I2CDriverBuilder {
     id_table: *const bindings::i2c_device_id,
     detect: Option<unsafe extern "C" fn(client: *mut bindings::i2c_client, info: *mut bindings::i2c_board_info) -> i32>,
     address_list: Option<*const u16>,
+    clients: Option<bindings::list_head>,
     flags: Option<u32>,
 }
 
@@ -622,20 +642,22 @@ impl I2CDriverBuilder {
         remove: unsafe extern "C" fn(client: *mut bindings::i2c_client),
         id_table: *const bindings::i2c_device_id,
     ) -> Self {
-        let mut driver: bindings::device_driver = unsafe { core::mem::zeroed() };
-        driver.name = driver_name;
-        driver.owner = owner;
         Self {
+            driver: bindings::device_driver {
+                name: driver_name,
+                owner,
+                ..Default::default()
+            },
             class: None,
             probe,
             remove,
             shutdown: None,
             alert: None,
             command: None,
-            driver,
             id_table,
             detect: None,
             address_list: None,
+            clients: None,
             flags: None,
         }
     }
@@ -677,6 +699,12 @@ impl I2CDriverBuilder {
     }
 
     /// Sets the flags for the driver.
+    pub fn clients(mut self, clients: bindings::list_head) -> Self {
+        self.clients = Some(clients);
+        self
+    }
+
+    /// Sets the flags for the driver.
     pub fn flags(mut self, flags: u32) -> Self {
         self.flags = Some(flags);
         self
@@ -684,19 +712,23 @@ impl I2CDriverBuilder {
 
     /// Builds the `I2CDriver` instance.
     pub fn build(self) -> Result<I2CDriver> {
-        let mut driver: bindings::i2c_driver = unsafe { core::mem::zeroed() };
-        driver.driver = self.driver;
-        driver.probe = Some(self.probe);
-        driver.remove = Some(self.remove);
-        driver.id_table = self.id_table;
-        driver.class = self.class.unwrap_or(0);
-        driver.shutdown = self.shutdown;
-        driver.alert = self.alert;
-        driver.command = self.command;
-        driver.detect = self.detect;
-        driver.address_list = self.address_list.unwrap_or(ptr::null());
-        driver.flags = self.flags.unwrap_or(0);
+        let driver = bindings::i2c_driver {
+            driver: self.driver,
+            probe: Some(self.probe),
+            remove: Some(self.remove),
+            id_table: self.id_table,
+            class: self.class.unwrap_or(0),
+            shutdown: self.shutdown,
+            alert: self.alert,
+            command: self.command,
+            detect: self.detect,
+            address_list: self.address_list.unwrap_or(ptr::null()),
+            clients: self.clients.unwrap_or_else(|| unsafe { core::mem::zeroed() }),
+            flags: self.flags.unwrap_or(0),
+        };
 
-        Ok(I2CDriver(Opaque::new(driver)))
+        let driver_ptr = Box::into_raw(Box::new(driver,GFP_KERNEL)?);
+
+        Ok(I2CDriver { driver: driver_ptr })
     }
 }
