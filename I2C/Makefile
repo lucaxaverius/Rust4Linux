@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-obj-m += simple_i2c_driver.o
+obj-m += i2c_test_driver.o
 
 # Build everything (both C and Rust code)
 all:

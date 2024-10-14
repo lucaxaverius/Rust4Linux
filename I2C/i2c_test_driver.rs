@@ -6,6 +6,7 @@
 /// uses i2c rust api to interact with i2c-stub
 use kernel::prelude::*;
 use kernel::{ThisModule, bindings, i2c::*, str::CStr};
+use kernel::{module_device_table};
 
 module! {
     type: RustI2CDriver,
@@ -15,11 +16,11 @@ module! {
     license: "GPL",
 }
 
-static struct RustI2CDriver {
+struct RustI2CDriver {
     driver: I2CDriver,
 }
 
-imp RustI2CDriver{
+impl RustI2CDriver{
     /// The probe function that will interact with the device
     unsafe extern "C" fn probe_function(client: *mut bindings::i2c_client) -> i32 {
         pr_info!("Rust I2C driver probed for client at address 0x{:x}\n", (*client).addr);
@@ -30,37 +31,37 @@ imp RustI2CDriver{
         };    
 
         // Write a single byte to register 0x01
-        if let Err(e) = unsafe{device.write_byte(0x01, 0xAB)} {
+        if let Err(e) = device.write_byte(0x01, 0xAB) {
             pr_err!("Failed to write byte: {:?}\n", e);
             return -EINVAL.to_errno();
         }
 
         // Read back the byte from the same register
-        match unsafe{device.read_byte(0x01)} {
+        match device.read_byte(0x01) {
             Ok(value) => pr_info!("Read byte from register 0x01: 0x{:X}\n", value),
             Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
         }
 
         // Write a single byte to register 0x01
-        if let Err(e) = unsafe{device.write_byte(0x01, 0xCC)} {
+        if let Err(e) = device.write_byte(0x01, 0xCC) {
             pr_err!("Failed to write byte: {:?}\n", e);
             return -EINVAL.to_errno();
         }
 
         // Read back the byte from the same register
-        match unsafe{device.read_byte(0x01)} {
+        match device.read_byte(0x01) {
             Ok(value) => pr_info!("Read byte from register 0x01: 0x{:X}\n", value),
             Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
         }
         
         // Write a single byte to register 0x01
-        if let Err(e) = unsafe{device.write_byte(0x02, 0x12)} {
+        if let Err(e) = device.write_byte(0x02, 0x12) {
             pr_err!("Failed to write byte: {:?}\n", e);
             return -EINVAL.to_errno();
         }
 
         // Read back the byte from the same register
-        match unsafe{device.read_byte(0x02)} {
+        match device.read_byte(0x02) {
             Ok(value) => pr_info!("Read byte from register 0x02: 0x{:X}\n", value),
             Err(e) => pr_err!("Failed to read byte: {:?}\n", e),
         }
@@ -69,21 +70,16 @@ imp RustI2CDriver{
 
         0
     }
-
-
-
+    
+    unsafe extern "C" fn remove(client: *mut bindings::i2c_client) {
+        pr_info!("Rust I2C driver removed for client at address 0x{:x}\n", client.addr());
+    }
 }
 
 // Define the device ID table for the devices you want to support
-static DEVICE_ID_TABLE: [I2CDeviceId; 2] = [
-    I2CDeviceId {
-        name: *b"rust_i2c_dev\0" as *const c_char,
-        driver_data: 0,
-    },
-    I2CDeviceId {
-        name: ptr::null(), // Terminate the table
-        driver_data: 0,
-    },
+static DEVICE_ID_TABLE: [bindings::i2c_device_id; 2] = [
+    {I2CDeviceId::new(b"rust_i2c_dev",0).inner()},
+    {I2CDeviceId::new(b"",0).inner()},
 ];
 
 // Expose the device table to the kernel
@@ -96,20 +92,20 @@ impl kernel::Module for RustI2CDriver {
         pr_info!("Rust I2C driver initializing\n");
 
         // Create a new I2C driver
-        let driver_name = c_str!("rust_i2c_driver");
+        let driver_name = CStr::from_bytes_with_nul(b"rust_i2c_driver\0").unwrap().as_ptr() as *const i8;
 
         let builder = I2CDriverBuilder::new(
-            driver_name.as_bytes_with_nul(),
-            kernel::THIS_MODULE,
-            Self::probe,
+            driver_name,
+            module.as_ptr(),
+            Self::probe_function,
             Self::remove,
             DEVICE_ID_TABLE.as_ptr(),
         );
 
-        let i2c_driver = builder.build()?;
+        let driver = builder.build()?;
 
         // Register the driver
-        I2CDriver::add_driver(&i2c_driver)?;
+        I2CDriver::add_driver(&driver)?;
 
         Ok(RustI2CDriver{driver})
     }
@@ -117,9 +113,6 @@ impl kernel::Module for RustI2CDriver {
 
 impl Drop for RustI2CDriver {
     fn drop(&mut self) {
-        unsafe {
-            self.driver.remove_driver();
-        }
         pr_info!("Rust I2C driver unloaded\n");
     }
 }

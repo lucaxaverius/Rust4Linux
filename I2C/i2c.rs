@@ -109,7 +109,7 @@ impl I2CAdapter {
             Err(EINVAL)
         } else {
             // Safety: The pointer is non-null and valid
-            Ok(Self { adapter_ptr })
+            Ok(Self { ptr: adapter_ptr })
         }
     }
 
@@ -125,7 +125,7 @@ impl I2CAdapter {
     pub fn transfer(&self, msgs: &mut [I2CMsg]) -> Result<usize> {
         let ret = unsafe {
             bindings::i2c_transfer(
-                self.ptr(),
+                self.ptr,
                 msgs.as_mut_ptr() as *mut bindings::i2c_msg,
                 msgs.len() as i32,
             )
@@ -144,55 +144,188 @@ impl Drop for I2CAdapter {
 /// It is used to build tables of information listing I2C devices
 /// that are present. This information is used to grow the driver model tree.
 #[repr(transparent)]
-pub struct I2CBoardInfo(Opaque<bindings::i2c_board_info>);
-
-/// Macro to initialize an `I2CBoardInfo` structure.
-/// 
-/// # Arguments
-/// * `dev_type` - The device type identifier.
-/// * `dev_addr` - The device address on the bus.
-/// 
-/// # Returns
-/// * `I2CBoardInfo` instance with the provided type and address.
-#[macro_export]
-macro_rules! i2c_board_info {
-    ($dev_type:expr, $dev_addr:expr) => {{
-        I2CBoardInfo(unsafe {
-            let mut info: bindings::i2c_board_info = core::mem::zeroed();
-            info.type_ = $dev_type;
-            info.addr = $dev_addr;
-            Opaque::new(&mut info)
-        })
-    }};
+pub struct I2CBoardInfo {
+    inner: bindings::i2c_board_info,
 }
+
+const ZEROED_I2C_BOARD_INFO: bindings::i2c_board_info = bindings::i2c_board_info {
+    type_: [0 as c_char; I2C_NAME_SIZE],
+    flags: 0,
+    addr: 0,
+    dev_name: core::ptr::null_mut(),
+    platform_data: core::ptr::null_mut(),
+    of_node: core::ptr::null_mut(),
+    fwnode: core::ptr::null_mut(),
+    swnode: core::ptr::null_mut(),
+    resources: core::ptr::null_mut(),
+    num_resources: 0,
+    irq: 0,
+};
+
+
+impl I2CBoardInfo{
+    /// Creates a new `I2CBoardInfo` instance.
+    /// It is the Rust counter part of the c macro I2C_BOARD_INFO
+    ///
+    /// # Arguments
+    ///
+    /// * `dev_type` - The device type identifier as a byte slice (without null terminator).
+    /// * `dev_addr` - The device address on the bus.
+    ///
+    /// # Returns
+    ///
+    /// An instance of `I2CBoardInfo`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// const BOARD_INFO: I2CBoardInfo = I2CBoardInfo::new(b"my_device", 0x50);
+    /// ```
+    pub const fn new(dev_type: &[u8], dev_addr: u16) -> Self {
+        let type_array = make_device_name(dev_type);
+
+        let inner = bindings::i2c_board_info {
+            type_: type_array,
+            addr: dev_addr,
+            ..ZEROED_I2C_BOARD_INFO // Rest of the fields are zeroed
+        };
+
+        I2CBoardInfo { inner }
+    }
+    /// Returns a copy of the inner `bindings::i2c_board_info` struct.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned struct is used correctly and that the `I2CBoardInfo`
+    /// instance remains valid as long as the data is being used.
+    pub const fn inner(&self) -> bindings::i2c_board_info{
+        self.inner
+    }
+    /// Returns a pointer to the inner `i2c_board_info` struct.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned pointer is used correctly and that
+    /// the `I2CBoardInfo` instance remains valid as long as the pointer is in use.
+    pub fn as_ptr(&self) -> *const bindings::i2c_board_info {
+        &self.inner as *const bindings::i2c_board_info
+    }
+
+}
+
+unsafe impl Sync for I2CBoardInfo {}
+unsafe impl Send for I2CBoardInfo {}
 
 
 /// This structure wraps the C `i2c_device_id` struct.
+/// The last record of the struct has "" as name and 0 as data.
 #[repr(transparent)]
-pub struct I2CDeviceId(Opaque<bindings::i2c_device_id>);
+pub struct I2CDeviceIDArray {
+    /// contains the underlying c struct.
+    inner: *bindings::i2c_device_id,
+}
+
+/// Max size of I2C device name 
+pub const I2C_NAME_SIZE: usize = bindings::I2C_NAME_SIZE as usize;
+
+/// Utility function that converts an array of u8 into a c_char[I2C_NAME_SIZE];
+const fn make_device_name(s: &[u8]) -> [c_char; I2C_NAME_SIZE] {
+    let mut name = [0 as c_char; I2C_NAME_SIZE];
+    let mut i = 0;
+    while i < s.len() && i < I2C_NAME_SIZE - 1 {
+        name[i] = s[i] as c_char;
+        i += 1;
+    }
+    name
+}
+
+impl I2CDeviceIDArray {
+    /// Creates a new `I2CDeviceId` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the I2C device as a byte slice (`&[u8]`). This will be converted into a
+    ///   null-terminated C string representing the device type. The name should not exceed
+    ///   `I2C_NAME_SIZE - 1` (19 bytes) to leave room for the null terminator.
+    /// * `driver_data` - The driver-specific data for the I2C device. This field is used to pass
+    ///   additional information that may be needed by the driver.
+    ///
+    /// # Returns
+    ///
+    /// An instance of `I2CDeviceId`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kernel::i2c::I2CDeviceId;
+    ///
+    /// const DEVICE_ID: I2CDeviceId = I2CDeviceId::new(b"example_device", 0);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic. If the provided `name` exceeds `I2C_NAME_SIZE - 1` bytes,
+    /// it will be truncated to fit.
+    pub const fn new(name: &[u8], driver_data: u64) -> bindings::i2c_device_id {
+       
+        let name_array = make_device_name(name);
+
+        // Create a new `i2c_device_id` struct and fill in the fields.
+        let inner = bindings::i2c_device_id {
+            name: name_array,
+            driver_data,
+        };
+
+        I2CDeviceId { inner }
+    }
+
+    /// Returns a copy of the inner `bindings::i2c_device_id` struct.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned struct is used correctly and that the `I2CDeviceId`
+    /// instance remains valid as long as the data is being used.
+    pub const fn inner(&self) -> bindings::i2c_device_id {
+        self.inner
+    }
+}
+
+unsafe impl Sync for I2CDeviceId {}
+unsafe impl Send for I2CDeviceId {}
 
 
-/// MODULE_DEVICE_TABLE equivalent in Rust.
-/// Creates an alias so file2alias.c can find device table.
-/// 
+/// Equivalent to the `MODULE_DEVICE_TABLE` macro in C.
+///
+/// Exposes the device table to the kernel module loader by creating a symbol
+/// with a specific name that `modpost` can find.
+///
 /// # Arguments
-/// * `type_` - The type of the device table.
-/// * `name` - The name of the device table.
+///
+/// * `$type_` - The type of the device table (e.g., `i2c`).
+/// * `$name` - The name of the device table variable.
+///
+/// # Example
+///
+/// ```rust
+/// module_device_table!(i2c, DEVICE_ID_TABLE);
+/// ```
 #[macro_export]
 macro_rules! module_device_table {
     ($type_:ident, $name:ident) => {
         #[no_mangle]
-        pub static mut __mod_{$type_}__{$name}_device_table: *const $crate::I2CDeviceId = &$name;
+        #[export_name = concat!("__mod_", stringify!($type_), "__", stringify!($name), "_device_table")]
+        pub static __DEVICE_TABLE_ALIAS: *const $crate::i2c::I2CDeviceId = &$name as *const _;
     };
 }
 
 
+
+
+
 /// This structure wraps the C `i2c_client`, it represents an I2C slave device (i.e. chip)
 /// connected to any i2c bus. 
-/// When
 ///
 /// The behaviour exposed to Linux is defined by the driver managing the device.
-#[repr(transparent)]
 pub struct I2CClient {
     ptr: *mut bindings::i2c_client,
     owned: bool,
@@ -210,13 +343,13 @@ impl I2CClient {
     /// * `Err(Error)` if the client cannot be created (i.e., error pointer returned).
     pub fn new_client_device(adapter: &I2CAdapter, board_info: &I2CBoardInfo) -> Result<Self> {
         // Safety: Calling the C API `i2c_new_client_device` which returns a pointer to `i2c_client` or an error pointer.
-        let client_ptr = unsafe { bindings::i2c_new_client_device(adapter.0.get(), board_info.0.get()) };
+        let client_ptr = unsafe { bindings::i2c_new_client_device(adapter.ptr, board_info.as_ptr()) };
 
         if client_ptr.is_null() || (client_ptr as isize) < 0 {
             Err(EINVAL)
         } else {
             // Safety: The pointer is non-null and valid, so it's safe to create an I2CClient instance.
-            Ok(Self { ptr, owned: true })
+            Ok(Self { ptr: client_ptr, owned: true })
           }
     }
 
@@ -454,8 +587,8 @@ impl I2CDriver {
 
 impl Drop for I2CDriver{
     fn drop(&mut self) {
-        /// Unregisters the I2C driver from the kernel.
-        unsafe { bindings::i2c_del_driver(driver.0.get()) };
+        // Unregisters the I2C driver from the kernel.
+        unsafe { bindings::i2c_del_driver(self.0.get()) };
     }
 }
 
@@ -483,14 +616,14 @@ pub struct I2CDriverBuilder {
 impl I2CDriverBuilder {
     /// Creates a new `I2CDriverBuilder` instance.
     pub fn new(
-        driver_name: &[c_char],
+        driver_name: *const i8,
         owner: *mut bindings::module,
         probe: unsafe extern "C" fn(client: *mut bindings::i2c_client) -> i32,
         remove: unsafe extern "C" fn(client: *mut bindings::i2c_client),
         id_table: *const bindings::i2c_device_id,
     ) -> Self {
         let mut driver: bindings::device_driver = unsafe { core::mem::zeroed() };
-        driver.name = driver_name.as_ptr();
+        driver.name = driver_name;
         driver.owner = owner;
         Self {
             class: None,
