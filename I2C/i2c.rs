@@ -8,10 +8,7 @@
 use kernel::prelude::*;
 use kernel::bindings;
 use kernel::error::{Error, Result, to_result};
-//use crate::{init::PinInit,pin_init};
-use core::ptr;
 use core::ffi::c_char;
-
 
 /// This structure represent the C `i2c_msg` struct.
 /// It is the low level representation of one segment of an I2C transaction.
@@ -308,25 +305,56 @@ impl I2CDeviceIDArray {
 
 unsafe impl Sync for I2CDeviceIDArray {}
 
-/// Equivalent to the `MODULE_DEVICE_TABLE` macro in C.
-///
 /// Exposes the device table to the kernel module loader by creating a symbol
-/// with a specific name that `modpost` can find.
+/// with a specific name that `modpost` and `file2alias` can find.
 ///
-/// # Arguments
+/// This macro is equivalent to the `MODULE_DEVICE_TABLE` macro in C and is used
+/// to export the device ID table to the kernel, allowing the module loader to
+/// automatically associate devices with your driver based on the device IDs.
 ///
-/// * `$type_` - The type of the device table (e.g., `i2c`).
-/// * `$name` - The name of the device table variable.
+/// # Parameters
+///
+/// - `$type_`: The device type identifier (e.g., `i2c`, `spi`, `usb`).
+/// - `$name`: The name of your device ID table variable.
+/// - `$device_id_type`: The full path to the device ID type (e.g., `bindings::i2c_device_id`).
+/// - `$len`: The length of your device ID table array.
 ///
 /// # Example
 ///
 /// ```rust
-/// module_device_table!(i2c, DEVICE_ID_TABLE);
+/// // Define the device ID table
+/// static DEVICE_ID_TABLE: [bindings::i2c_device_id; 2] = [
+///     I2CDeviceIDArray::new_record(b"rust_i2c_dev\0", 0),
+///     I2CDeviceIDArray::new_record(b"\0", 0),
+/// ];
+///
+/// // Use the macro to expose the device table
+/// module_device_table!(i2c, DEVICE_ID_TABLE, bindings::i2c_device_id, 2);
 /// ```
+///
+/// # Notes
+///
+/// - The macro exports a symbol with a name in the format:
+///   `__mod_<type>__<name>_device_table`, which is recognized by the kernel's
+///   module loader and `modpost` utility.
+/// - Ensure that the device ID table and the device ID type you provide are
+///   consistent and correctly initialized.
+///
+/// # Limitations
+///
+/// - Due to Rust's macro system limitations, we cannot concatenate identifiers
+///   to form type paths directly within `macro_rules!` macros. Therefore, the
+///   device ID type must be provided explicitly as a parameter.
 #[macro_export]
 macro_rules! module_device_table {
-    ($type_:ident, $name:ident) => {
+    ($type_:ident, $name:ident, $device_id_type:path, $len:expr) => {
+        #[doc = concat!(
+            "Device table for ",
+            stringify!($type_),
+            " devices. This table is used by the kernel to match devices with the driver."
+        )]
         #[no_mangle]
+        #[link_section = ".modinfo"]
         #[export_name = concat!(
             "__mod_",
             stringify!($type_),
@@ -334,14 +362,9 @@ macro_rules! module_device_table {
             stringify!($name),
             "_device_table"
         )]
-        pub static __DEVICE_TABLE_ALIAS: $crate::i2c::I2CDeviceIDArray =
-            $crate::i2c::I2CDeviceIDArray::new($name.as_ptr());
+        pub static __DEVICE_TABLE_ALIAS: [$device_id_type; $len] = $name;
     };
 }
-
-
-
-
 
 
 /// This structure wraps the C `i2c_client`, it represents an I2C slave device (i.e. chip)
@@ -587,11 +610,12 @@ impl Drop for I2CClient {
 
 /// Represents an I2C driver.
 ///
-/// This structure wraps the C `i2c_driver` struct pointer and provides methods for driver registration
+/// This structure contains the C `i2c_driver` struct and provides methods for driver registration
 /// and deregistration with the I2C subsystem.
 pub struct I2CDriver {
     driver: *mut bindings::i2c_driver,
 }
+
 
 impl I2CDriver {
     /// Registers the I2C driver with the kernel.
@@ -607,6 +631,7 @@ impl I2CDriver {
     /// Deregisters the I2C driver from the kernel.
     ///
     /// This function calls `i2c_del_driver` to remove the driver from the I2C subsystem.
+    /// It must be called in the Drop trait of the kernel module.
     pub fn remove_driver(&self) {
         // Unregisters the I2C driver from the kernel.
         unsafe { bindings::i2c_del_driver(self.driver) };
@@ -709,26 +734,33 @@ impl I2CDriverBuilder {
         self.flags = Some(flags);
         self
     }
-
+    
     /// Builds the `I2CDriver` instance.
     pub fn build(self) -> Result<I2CDriver> {
         let driver = bindings::i2c_driver {
-            driver: self.driver,
-            probe: Some(self.probe),
-            remove: Some(self.remove),
-            id_table: self.id_table,
-            class: self.class.unwrap_or(0),
-            shutdown: self.shutdown,
-            alert: self.alert,
-            command: self.command,
-            detect: self.detect,
-            address_list: self.address_list.unwrap_or(ptr::null()),
-            clients: self.clients.unwrap_or_else(|| unsafe { core::mem::zeroed() }),
-            flags: self.flags.unwrap_or(0),
-        };
-
-        let driver_ptr = Box::into_raw(Box::new(driver,GFP_KERNEL)?);
+                driver: self.driver,
+                probe: Some(self.probe),
+                remove: Some(self.remove),
+                id_table: self.id_table,
+                class: self.class.unwrap_or(0),
+                shutdown: self.shutdown,
+                alert: self.alert,
+                command: self.command,
+                detect: self.detect,
+                address_list: self.address_list.unwrap_or(core::ptr::null()),
+                clients: self.clients.unwrap_or(
+                    bindings::list_head{
+                        next: core::ptr::null_mut(),
+                        prev: core::ptr::null_mut(),
+                    }
+                ),
+                flags: self.flags.unwrap_or(0),
+            };
+        
+        // Boxes provide ownership for this allocation, and drop their contents when they go out of scope
+        let driver_ptr = Box::into_raw(Box::new(driver,GFP_KERNEL).expect("Driver allocation failed"));
 
         Ok(I2CDriver { driver: driver_ptr })
     }
+    
 }

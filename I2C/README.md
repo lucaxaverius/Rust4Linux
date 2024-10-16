@@ -85,7 +85,7 @@ Manually create the I2C device to trigger the driver's probe function.
 ## Removing the Driver and Cleanup
 ### 1. Delete the I2C Device via Sysfs
 Remove the I2C device to unbind it from the driver:
-> echo 0x50 | sudo tee /sys/bus/i2c/devices/i2c-0/delete_device
+> echo 0x50 | sudo tee /sys/bus/i2c/devices/i2c-1/delete_device
 >
 
 - To verify:
