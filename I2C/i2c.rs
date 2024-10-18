@@ -8,7 +8,7 @@
 use kernel::prelude::*;
 use kernel::bindings;
 use kernel::error::{Error, Result, to_result};
-use core::ffi::c_char;
+use core::ffi::{c_char, c_void, c_int};
 
 /// This structure represent the C `i2c_msg` struct.
 /// It is the low level representation of one segment of an I2C transaction.
@@ -348,11 +348,6 @@ unsafe impl Sync for I2CDeviceIDArray {}
 #[macro_export]
 macro_rules! module_device_table {
     ($type_:ident, $name:ident, $device_id_type:path, $len:expr) => {
-        #[doc = concat!(
-            "Device table for ",
-            stringify!($type_),
-            " devices. This table is used by the kernel to match devices with the driver."
-        )]
         #[no_mangle]
         #[link_section = ".modinfo"]
         #[export_name = concat!(
@@ -764,3 +759,118 @@ impl I2CDriverBuilder {
     }
     
 }
+/// Trait representing the essential functions of an I2C driver.
+pub trait I2CDriverCallbacks: Send + Sync {
+    /// Probe function called when the driver is bound to an I2C device.
+    fn probe(&self, client: I2CClient) -> Result<(), c_int>;
+
+    /// Remove function called when the driver is unbound from an I2C device.
+    fn remove(&self, client: I2CClient);
+
+    /// Optional shutdown function called during device shutdown.
+    fn shutdown(&self, client: I2CClient) {
+        // Default implementation does nothing.
+            pr_info!("I2C Shutdown called from client: {:?}",unsafe{(*client.ptr).name});
+        
+    }
+
+    /// Optional alert function called on I2C alerts.
+    fn alert(&self, client: I2CClient, protocol: bindings::i2c_alert_protocol, data: u32) {
+        // Default implementation does nothing.
+               
+        pr_info!("I2C Alert called from client: {:?}",unsafe{(*client.ptr).name});
+        
+    }
+
+    /// Optional command function called to execute custom commands.
+    fn command(&self, client: I2CClient, cmd: u32, arg: *mut c_void) -> Result<(), c_int> {
+        // Default implementation returns -EINVAL.
+        //Err(EINVAL).to_errno()  
+        pr_info!("I2C Command called from client: {:?}",unsafe{(*client.ptr).name});
+        Ok(())
+    }
+
+    /// Optional detect function for device detection.
+    fn detect(&self, client: I2CClient, info: *mut bindings::i2c_board_info) -> Result<(), c_int> {
+        // Default implementation returns -EINVAL.
+        //Err(EINVAL).to_errno()     
+        pr_info!("I2C Detect called from client: {:?}",unsafe{(*client.ptr).name});
+
+        Ok(())
+    }
+}
+
+/// Generates the unsafe extern "C" functions required for the I2C driver.
+///
+/// This macro creates the necessary C-compatible callback functions by calling the corresponding
+/// methods from your Rust driver instance that implements the `I2CDriverCallbacks` trait.
+///
+/// # Usage
+///
+/// ```rust
+/// generate_i2c_callbacks!(MY_I2C_DRIVER_CALLBACKS);
+/// ```
+///
+/// Replace `MY_I2C_DRIVER_CALLBACKS` with the name of your driver instance.
+#[macro_export]
+macro_rules! generate_i2c_callbacks {
+    ($driver_instance:ident) => {
+        
+        #[no_mangle]
+        pub unsafe extern "C" fn probe_callback(client: *mut bindings::i2c_client) -> i32 {
+            let client = I2CClient::from_raw_ptr(client);
+            match $driver_instance.probe(client) {
+                Ok(_) => 0,
+                Err(e) => e,
+            }
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn remove_callback(client: *mut bindings::i2c_client) {
+            let client = I2CClient::from_raw_ptr(client);
+            $driver_instance.remove(client);
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn shutdown_callback(client: *mut bindings::i2c_client) {
+            let client = I2CClient::from_raw_ptr(client);
+            $driver_instance.shutdown(client);
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn alert_callback(
+            client: *mut bindings::i2c_client,
+            protocol: bindings::i2c_alert_protocol,
+            data: u32,
+        ) {
+            let client = I2CClient::from_raw_ptr(client);
+            $driver_instance.alert(client, protocol, data);
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn command_callback(
+            client: *mut bindings::i2c_client,
+            cmd: u32,
+            arg: *mut c_void,
+        ) -> i32 {
+            let client = I2CClient::from_raw_ptr(client);
+            match $driver_instance.command(client, cmd, arg) {
+                Ok(_) => 0,
+                Err(e) => e,
+            }
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn detect_callback(
+            client: *mut bindings::i2c_client,
+            info: *mut bindings::i2c_board_info,
+        ) -> i32 {
+            let client = I2CClient::from_raw_ptr(client);
+            match $driver_instance.detect(client, info) {
+                Ok(_) => 0,
+                Err(e) => e,
+            }
+        }
+    };
+}
+
