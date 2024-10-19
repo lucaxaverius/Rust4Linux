@@ -213,23 +213,71 @@ unsafe impl Sync for I2CBoardInfo {}
 unsafe impl Send for I2CBoardInfo {}
 
 
-/// This structure wraps a pointer to C `i2c_device_id` struct.
+/// Represents an I2C device ID.
 ///
-/// This is used to represent a table of supported I2C devices. It wraps a pointer
-/// to an array of `bindings::i2c_device_id` structs, where the last record should
-/// have an empty string for the name and `0` for the driver data, serving as a
-/// terminator in the array.
+/// This struct wraps the kernel's `i2c_device_id` struct, providing a Rust-friendly
+/// interface while maintaining the same memory layout for compatibility.
 ///
-/// # Safety
-/// The caller must ensure that the underlying array of `bindings::i2c_device_id`
-/// remains valid for the lifetime of the `I2CDeviceIDArray` instance. Additionally,
-/// it must be terminated with an entry where the name is an empty string and driver
-/// data is zero.
+/// # Examples
+///
+/// ```rust
+/// static ID_TABLE: [I2CDeviceID; 2] = [
+///     I2CDeviceID::new(b"my_i2c_device", 0),
+///     I2CDeviceID::new(b"", 0), // Terminating entry
+/// ];
+/// ```
 #[repr(transparent)]
-pub struct I2CDeviceIDArray {
-    /// Contains a pointer to the underlying array of `i2c_device_id` structs.
-    inner: *const bindings::i2c_device_id,
+pub struct I2CDeviceID {
+    inner: bindings::i2c_device_id,
 }
+
+impl I2CDeviceID {
+
+    /// Creates a new `I2CDeviceID` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the I2C device as a byte slice (`&[u8]`).
+    ///            It will be truncated if it exceeds `I2C_NAME_SIZE - 1`.
+    /// * `driver_data` - Driver-specific data associated with this device ID.
+    pub const fn new(name: &[u8], driver_data: u64) -> Self {
+        let name_array = make_device_name(name);
+        Self {
+            inner: bindings::i2c_device_id {
+                name: name_array,
+                driver_data,
+            },
+        }
+    }
+
+    /// Returns a pointer to the underlying `bindings::i2c_device_id`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the `I2CDeviceID` instance remains valid while the pointer is used.
+    pub fn as_ptr(&self) -> *const bindings::i2c_device_id {
+        &self.inner
+    }
+
+
+    /// Converts an array of `I2CDeviceID` to an array of `bindings::i2c_device_id`.
+    pub const fn to_bindings_array<const N: usize>(
+        array: &[I2CDeviceID; N],
+    ) -> [bindings::i2c_device_id; N] {
+        let mut result: [bindings::i2c_device_id; N] = [bindings::i2c_device_id {
+            name: [0; I2C_NAME_SIZE],
+            driver_data: 0,
+        }; N];
+        let mut i = 0;
+        while i < N {
+            result[i] = array[i].inner; 
+            i += 1;
+        }
+        result
+    }
+}
+
+unsafe impl Sync for I2CDeviceID {}
 
 /// Max size of I2C device name 
 pub const I2C_NAME_SIZE: usize = bindings::I2C_NAME_SIZE as usize;
@@ -244,66 +292,6 @@ const fn make_device_name(s: &[u8]) -> [c_char; I2C_NAME_SIZE] {
     }
     name
 }
-
-impl I2CDeviceIDArray {
-
-    /// Initializes a new `I2CDeviceIDArray` instance from a pointer to a static table.
-    ///
-    /// # Arguments
-    ///
-    /// * `table` - A pointer to a static array of `i2c_device_id` records.
-    ///
-    /// # Returns
-    ///
-    /// An instance of `I2CDeviceIDArray` that wraps the provided pointer.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the provided table pointer is valid and remains valid for the
-    /// lifetime of the `I2CDeviceIDArray`. The table must also be properly terminated.
-    pub const fn new(table: *const bindings::i2c_device_id) -> Self {
-        Self {
-            inner: table,
-        }
-    }
-
-    /// Creates a new `bindings::i2c_device_id` record.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the I2C device as a byte slice (`&[u8]`). This name will be truncated if
-    ///   it exceeds `I2C_NAME_SIZE - 1` (leaving room for the null terminator).
-    /// * `driver_data` - The driver-specific data for the I2C device.
-    ///
-    /// # Returns
-    ///
-    /// A fully-initialized `bindings::i2c_device_id` record.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let record = I2CDeviceIDArray::new_record(b"my_i2c_device", 0);
-    /// ```
-    pub const fn new_record(name: &[u8], driver_data: u64) -> bindings::i2c_device_id {
-        let name_array = make_device_name(name);
-        bindings::i2c_device_id {
-            name: name_array,
-            driver_data,
-        }
-    }
-
-    /// Returns a pointer to the internal array of `bindings::i2c_device_id`.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer must not be used beyond the lifetime of the `I2CDeviceIDArray`.
-    /// Additionally, the underlying array must remain valid and properly terminated.
-    pub const fn as_ptr(&self) -> *const bindings::i2c_device_id {
-        self.inner as *const bindings::i2c_device_id
-    }
-}
-
-unsafe impl Sync for I2CDeviceIDArray {}
 
 /// Exposes the device table to the kernel module loader by creating a symbol
 /// with a specific name that `modpost` and `file2alias` can find.
@@ -322,14 +310,7 @@ unsafe impl Sync for I2CDeviceIDArray {}
 /// # Example
 ///
 /// ```rust
-/// // Define the device ID table
-/// static DEVICE_ID_TABLE: [bindings::i2c_device_id; 2] = [
-///     I2CDeviceIDArray::new_record(b"rust_i2c_dev\0", 0),
-///     I2CDeviceIDArray::new_record(b"\0", 0),
-/// ];
-///
-/// // Use the macro to expose the device table
-/// module_device_table!(i2c, DEVICE_ID_TABLE, bindings::i2c_device_id, 2);
+/// module_device_table!(i2c, DEVICE_ID_TABLE, bindings::i2c_device_id, 3);
 /// ```
 ///
 /// # Notes
@@ -339,12 +320,6 @@ unsafe impl Sync for I2CDeviceIDArray {}
 ///   module loader and `modpost` utility.
 /// - Ensure that the device ID table and the device ID type you provide are
 ///   consistent and correctly initialized.
-///
-/// # Limitations
-///
-/// - Due to Rust's macro system limitations, we cannot concatenate identifiers
-///   to form type paths directly within `macro_rules!` macros. Therefore, the
-///   device ID type must be provided explicitly as a parameter.
 #[macro_export]
 macro_rules! module_device_table {
     ($type_:ident, $name:ident, $device_id_type:path, $len:expr) => {
@@ -360,6 +335,39 @@ macro_rules! module_device_table {
         pub static __DEVICE_TABLE_ALIAS: [$device_id_type; $len] = $name;
     };
 }
+
+/// Exposes the I2C device table to the kernel module loader by creating a symbol
+/// with a specific name that `modpost` and `file2alias` can find.
+///
+/// This macro handles the conversion from `I2CDeviceID` to `bindings::i2c_device_id`
+/// and calls the general `module_device_table!` macro.
+/// The converted table is named: __I2C_DEVICE_TABLE_BINDINGS. 
+/// Remember to use this when building a new driver.
+///
+/// # Parameters
+///
+/// - `$name`: The name of your I2CDeviceID table.
+/// - `$len`: The length of your I2CDeviceID table array.
+///
+/// # Example
+///
+/// ```rust
+/// i2c_module_device_table!(ID_TABLE, ID_TABLE_LEN);
+/// ```
+#[macro_export]
+macro_rules! i2c_module_device_table {
+    ($name:ident, $len:expr) => {
+        // Generate the bindings array using the const fn
+        /// The static array of bindings generated from the I2C device ID table.
+        /// This array is used to expose the device table to the kernel module loader.        static __I2C_DEVICE_TABLE_BINDINGS: [kernel::bindings::i2c_device_id; $len] =
+            crate::I2CDeviceID::to_bindings_array(&$name);
+
+        // Expose the device table to the kernel module loader
+        kernel::module_device_table!(i2c, __I2C_DEVICE_TABLE_BINDINGS, kernel::bindings::i2c_device_id, $len);
+    };
+}
+
+
 
 
 /// This structure wraps the C `i2c_client`, it represents an I2C slave device (i.e. chip)
@@ -762,40 +770,41 @@ impl I2CDriverBuilder {
 /// Trait representing the essential functions of an I2C driver.
 pub trait I2CDriverCallbacks: Send + Sync {
     /// Probe function called when the driver is bound to an I2C device.
-    fn probe(&self, client: I2CClient) -> Result<(), c_int>;
+    fn probe(&self, _client: I2CClient) -> Result<(), c_int>{
+        // Default implementation does nothing.
+        pr_info!("I2C Probe called\n");
+        Ok(())
+    }
 
     /// Remove function called when the driver is unbound from an I2C device.
-    fn remove(&self, client: I2CClient);
+    fn remove(&self, _client: I2CClient){
+        // Default implementation does nothing.
+        pr_info!("I2C Remove called\n");
+    }
 
     /// Optional shutdown function called during device shutdown.
-    fn shutdown(&self, client: I2CClient) {
+    fn shutdown(&self, _client: I2CClient) {
         // Default implementation does nothing.
-            pr_info!("I2C Shutdown called from client: {:?}",unsafe{(*client.ptr).name});
-        
+        pr_info!("I2C Shutdown called\n");
     }
 
     /// Optional alert function called on I2C alerts.
-    fn alert(&self, client: I2CClient, protocol: bindings::i2c_alert_protocol, data: u32) {
+    fn alert(&self, _client: I2CClient, _protocol: bindings::i2c_alert_protocol, _data: u32) {
         // Default implementation does nothing.
-               
-        pr_info!("I2C Alert called from client: {:?}",unsafe{(*client.ptr).name});
-        
+        pr_info!("I2C Alert called\n");
     }
 
     /// Optional command function called to execute custom commands.
-    fn command(&self, client: I2CClient, cmd: u32, arg: *mut c_void) -> Result<(), c_int> {
-        // Default implementation returns -EINVAL.
-        //Err(EINVAL).to_errno()  
-        pr_info!("I2C Command called from client: {:?}",unsafe{(*client.ptr).name});
+    fn command(&self, _client: I2CClient, _cmd: u32, _arg: *mut c_void) -> Result<(), c_int> {
+        // Default implementation does nothing.
+        pr_info!("I2C Command called\n");
         Ok(())
     }
 
     /// Optional detect function for device detection.
-    fn detect(&self, client: I2CClient, info: *mut bindings::i2c_board_info) -> Result<(), c_int> {
-        // Default implementation returns -EINVAL.
-        //Err(EINVAL).to_errno()     
-        pr_info!("I2C Detect called from client: {:?}",unsafe{(*client.ptr).name});
-
+    fn detect(&self, _client: I2CClient, _info: *mut bindings::i2c_board_info) -> Result<(), c_int> {
+        // Default implementation does nothing.
+        pr_info!("I2C Detect called\n");
         Ok(())
     }
 }
@@ -815,57 +824,77 @@ pub trait I2CDriverCallbacks: Send + Sync {
 #[macro_export]
 macro_rules! generate_i2c_callbacks {
     ($driver_instance:ident) => {
-        
+        /// Extern "C" probe callback that is triggered when the I2C device is being probed.
+        /// 
+        /// This function is automatically called by the kernel when a device that matches
+        /// the driver's device ID table is detected on the I2C bus.
         #[no_mangle]
-        pub unsafe extern "C" fn probe_callback(client: *mut bindings::i2c_client) -> i32 {
-            let client = I2CClient::from_raw_ptr(client);
+        pub unsafe extern "C" fn probe_callback(client: *mut kernel::bindings::i2c_client) -> i32 {
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             match $driver_instance.probe(client) {
                 Ok(_) => 0,
                 Err(e) => e,
             }
         }
 
+        /// Extern "C" remove callback that is triggered when the I2C device is removed.
+        /// 
+        /// This function is automatically called by the kernel when the I2C device is being
+        /// removed from the bus or when the driver is unloaded.
         #[no_mangle]
-        pub unsafe extern "C" fn remove_callback(client: *mut bindings::i2c_client) {
-            let client = I2CClient::from_raw_ptr(client);
+        pub unsafe extern "C" fn remove_callback(client: *mut kernel::bindings::i2c_client) {
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             $driver_instance.remove(client);
         }
 
+        /// Extern "C" shutdown callback that is triggered when the system is shutting down.
+        /// 
+        /// This optional function can be provided to handle device-specific shutdown logic.
         #[no_mangle]
-        pub unsafe extern "C" fn shutdown_callback(client: *mut bindings::i2c_client) {
-            let client = I2CClient::from_raw_ptr(client);
+        pub unsafe extern "C" fn shutdown_callback(client: *mut kernel::bindings::i2c_client) {
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             $driver_instance.shutdown(client);
         }
 
+        /// Extern "C" alert callback that is triggered on I2C alerts.
+        /// 
+        /// This optional function is called when an I2C alert occurs, typically used in SMBus.
         #[no_mangle]
         pub unsafe extern "C" fn alert_callback(
-            client: *mut bindings::i2c_client,
-            protocol: bindings::i2c_alert_protocol,
+            client: *mut kernel::bindings::i2c_client,
+            protocol: kernel::bindings::i2c_alert_protocol,
             data: u32,
         ) {
-            let client = I2CClient::from_raw_ptr(client);
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             $driver_instance.alert(client, protocol, data);
         }
 
+        /// Extern "C" command callback that is triggered for custom I2C commands.
+        /// 
+        /// This optional function allows custom commands to be sent to the I2C device.
         #[no_mangle]
         pub unsafe extern "C" fn command_callback(
-            client: *mut bindings::i2c_client,
+            client: *mut kernel::bindings::i2c_client,
             cmd: u32,
-            arg: *mut c_void,
+            arg: *mut core::ffi::c_void,
         ) -> i32 {
-            let client = I2CClient::from_raw_ptr(client);
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             match $driver_instance.command(client, cmd, arg) {
                 Ok(_) => 0,
                 Err(e) => e,
             }
         }
 
+        /// Extern "C" detect callback that is triggered for device detection on the I2C bus.
+        /// 
+        /// This optional function can be used to detect devices on the I2C bus that do not
+        /// explicitly announce their presence.
         #[no_mangle]
         pub unsafe extern "C" fn detect_callback(
-            client: *mut bindings::i2c_client,
-            info: *mut bindings::i2c_board_info,
+            client: *mut kernel::bindings::i2c_client,
+            info: *mut kernel::bindings::i2c_board_info,
         ) -> i32 {
-            let client = I2CClient::from_raw_ptr(client);
+            let client = kernel::i2c::I2CClient::from_raw_ptr(client);
             match $driver_instance.detect(client, info) {
                 Ok(_) => 0,
                 Err(e) => e,
@@ -873,4 +902,5 @@ macro_rules! generate_i2c_callbacks {
         }
     };
 }
+
 

@@ -1,2 +1,2 @@
-1) Ragiona su I2CClient, credo che sia meglio dropparlo direttamente nel modulo.
-2) Probabilmente ha senso rimuovere new_client_device oppure discuti col prof.
+1) Sistema i2c_device_id, chi scrive il driver deve creare una tabella in Rust,
+dopodiché tramite macro devi esporre la tabella coi bindings.

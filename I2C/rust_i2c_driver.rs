@@ -1,13 +1,13 @@
-// i2c_test_driver.rs
+// rust_i2c_driver.rs
 
 // SPDX-License-Identifier: GPL-2.0
 
 //! I2C Test Module
 /// uses i2c rust api to interact with i2c-stub
 use kernel::prelude::*;
-use kernel::{ThisModule, bindings, i2c::*, str::CStr};
-use kernel::{module_device_table, generate_i2c_callbacks};
-use core::ffi::{c_int, c_void};
+use kernel::{ThisModule, i2c::*, str::CStr};
+use kernel::{i2c_module_device_table, generate_i2c_callbacks};
+use core::ffi::{c_int};
 
 module! {
     type: RustI2CDriver,
@@ -75,19 +75,18 @@ impl I2CDriverCallbacks for MyI2CDriverCallbacks{
     }
 }
 
+const ID_TABLE_LEN: usize = 3;
 // Define the device ID table for the devices you want to support
-static ID_TABLE: [bindings::i2c_device_id; 3] = [
-    {I2CDeviceIDArray::new_record(b"rust_i2c_dev",0)},
-    {I2CDeviceIDArray::new_record(b"rust_i2c_dev_n2",0)},
-    {I2CDeviceIDArray::new_record(b"",0)},
+static ID_TABLE: [I2CDeviceID; ID_TABLE_LEN] = [
+    {I2CDeviceID::new(b"rust_i2c_dev",0)},
+    {I2CDeviceID::new(b"rust_i2c_dev_n2",0)},
+    {I2CDeviceID::new(b"",0)},
 ];
 
 // Expose the device table to the kernel module loader
-module_device_table!(i2c, ID_TABLE, bindings::i2c_device_id, 3);
+i2c_module_device_table!(ID_TABLE, 3);
 // To check if the aliases are correctly loaded:
 // modinfo ./rust_i2c_driver.ko | grep alias
-
-static DEVICE_ID_TABLE: I2CDeviceIDArray = I2CDeviceIDArray::new(ID_TABLE.as_ptr());
 
 static ADDRESS_LIST: [u16; 2] = [0x50, 0];  // 0x50 is the I2C address used by i2c-stub
 
@@ -114,7 +113,7 @@ impl kernel::Module for RustI2CDriver {
             module.as_ptr(),
             probe_callback,
             remove_callback,
-            DEVICE_ID_TABLE.as_ptr(),
+            __I2C_DEVICE_TABLE_BINDINGS.as_ptr(),
         )
         .address_list(ADDRESS_LIST.as_ptr());
                 
