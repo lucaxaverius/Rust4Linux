@@ -50,7 +50,7 @@ impl I2CDriverCallbacks for MyI2CDriverCallbacks{
         }
 
         // Write a block of data to register 0x03
-        let data_to_write = [0x01, 0x02, 0x03, 0x04];
+        let data_to_write = [0xA5, 0xA6, 0xA7, 0xA8];
         if let Err(e) = client.write_block(0x03, &data_to_write) {
             pr_err!("Failed to write block to register 0x03: {:?}\n", e);
             return Err(e.to_errno());

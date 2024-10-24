@@ -33,6 +33,7 @@ macro_rules! module_device_table {
             stringify!($name),
             "_device_table"
         )]
+        /// The array exposed to modinfo
         pub static __DEVICE_TABLE_ALIAS: [$device_id_type; $len] = $name;
     };
 }

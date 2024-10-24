@@ -12,13 +12,13 @@
 #[repr(C)]
 pub struct I2CMsg {
     /// Slave address, either 7 or 10 bits.
-    pub addr: u16,
+    addr: u16,
     /// Message flags (e.g., read/write indicators).
-    pub flags: u16,
+    flags: u16,
     /// Length of the message buffer.
-    pub len: u16,
+    len: u16,
     /// Pointer to the message buffer.
-    pub buf: *mut u8,
+    buf: *mut u8,
 }
 
 impl I2CMsg {

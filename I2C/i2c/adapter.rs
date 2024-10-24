@@ -16,7 +16,7 @@ use crate::error::to_result;
 /// I2C transactions on that bus.
 pub struct I2CAdapter {
     /// Pointer to the underlying `i2c_adapter` struct.
-    pub ptr: *mut bindings::i2c_adapter,
+    ptr: *mut bindings::i2c_adapter,
 }
 
 impl I2CAdapter {
@@ -53,14 +53,29 @@ impl I2CAdapter {
     /// * `Ok(usize)` indicating the number of messages transferred.
     /// * `Err(Error)` if the transfer fails.
     pub fn transfer(&self, msgs: &mut [I2CMsg]) -> Result<usize> {
+        // I2C not yet initialized
+        if self.ptr.is_null() {
+            return Err(EINVAL); 
+        }
+        
         let ret = unsafe {
             bindings::i2c_transfer(
                 self.ptr,
                 msgs.as_mut_ptr() as *mut bindings::i2c_msg,
-                msgs.len() as i32,
+                msgs.len() as i32, //the number of messages
             )
         };
         to_result(ret).map(|_| ret as usize)
+    }
+    
+    /// Returns a raw pointer to the underlying `i2c_adapter` struct.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned pointer is used safely and that
+    /// the `I2CAdapter` remains valid as long as the pointer is used.
+    pub fn as_ptr(&self) -> *mut bindings::i2c_adapter {
+        self.ptr
     }
 }
 

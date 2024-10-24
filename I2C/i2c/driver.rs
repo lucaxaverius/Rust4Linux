@@ -26,16 +26,28 @@ impl I2CDriver {
     /// * `Ok(())` if registration is successful.
     /// * `Err(Error)` if registration fails.
     pub fn add_driver(&self) -> Result<()> {
+        if self.driver.is_null() {
+            return Err(EINVAL);
+        } 
         let ret = unsafe { bindings::i2c_add_driver(self.driver) };
         to_result(ret)
     }
 
-    /// Deregisters the I2C driver from the kernel.
+    /// Deregisters the I2C driver from the kernel and free the heap.
     ///
-    /// Should be called when the driver is being unloaded.
     /// It must be called in the Drop trait of the kernel module.
     pub fn remove_driver(&self) {
-        unsafe { bindings::i2c_del_driver(self.driver) };
+        if self.driver.is_null() {
+            pr_info!("WARNING!!! Called remove driver to null ptr !!!");
+            return;
+        } 
+        unsafe { 
+            bindings::i2c_del_driver(self.driver);
+            // Convert the raw pointer back to a Box so that Rust can properly deallocate it
+
+            drop(Box::from_raw(self.driver));
+        };
+    
     }
 }
 
@@ -199,6 +211,13 @@ impl I2CDriverBuilder {
 /// Trait representing the essential callbacks for an I2C driver.
 ///
 /// Implement this trait to define the behavior of your I2C driver.
+///
+/// # Safety:
+///
+/// The `I2CDriverCallbacks` trait is required to implement both `Send` and `Sync`, to be implemented in a static context.
+/// Implementors of this trait are responsible for ensuring that their internal state adheres to
+/// Rust's concurrency guarantees, making the `Send + Sync` markers appropriate.
+///
 pub trait I2CDriverCallbacks: Send + Sync {
     /// Called when the driver is bound to an I2C device.
     ///

@@ -57,13 +57,13 @@ impl I2CBoardInfo {
         I2CBoardInfo { inner }
     }
 
-    /// Returns a copy of the inner `i2c_board_info` struct.
+    /// Returns a reference to the inner `i2c_board_info` struct.
     ///
     /// # Safety
     ///
     /// The caller must ensure the returned struct is used appropriately.
-    pub const fn inner(&self) -> bindings::i2c_board_info {
-        self.inner
+    pub fn inner(&self) -> &bindings::i2c_board_info {
+        &self.inner
     }
 
     /// Returns a pointer to the inner `i2c_board_info` struct.
@@ -77,4 +77,3 @@ impl I2CBoardInfo {
 }
 
 unsafe impl Sync for I2CBoardInfo {}
-unsafe impl Send for I2CBoardInfo {}

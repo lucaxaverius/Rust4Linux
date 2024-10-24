@@ -17,7 +17,7 @@ use crate::error::to_result;
 /// An `I2CClient` is used to communicate with a specific I2C slave device on the bus.
 pub struct I2CClient {
     /// Pointer to the underlying `i2c_client` struct.
-    pub ptr: *mut bindings::i2c_client,
+    ptr: *mut bindings::i2c_client,
     owned: bool,
 }
 
@@ -35,7 +35,7 @@ impl I2CClient {
     /// * `Err(Error)` if creation fails.
     pub fn new_client_device(adapter: &I2CAdapter, board_info: &I2CBoardInfo) -> Result<Self> {
         let client_ptr =
-            unsafe { bindings::i2c_new_client_device(adapter.ptr, board_info.as_ptr()) };
+            unsafe { bindings::i2c_new_client_device(adapter.as_ptr(), board_info.as_ptr()) };
 
         if client_ptr.is_null() || (client_ptr as isize) < 0 {
             Err(EINVAL)

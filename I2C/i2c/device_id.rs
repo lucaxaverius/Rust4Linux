@@ -14,7 +14,7 @@ use crate::i2c::utils::{make_device_name, I2C_NAME_SIZE};
 #[repr(transparent)]
 pub struct I2CDeviceID {
     /// The inner `i2c_device_id` struct.
-    pub inner: bindings::i2c_device_id,
+    inner: bindings::i2c_device_id,
 }
 
 impl I2CDeviceID {
@@ -55,11 +55,13 @@ impl I2CDeviceID {
     pub const fn to_bindings_array<const N: usize>(
         array: &[I2CDeviceID; N],
     ) -> [bindings::i2c_device_id; N] {
+        // Initialize an empty arrai of i2c_device_id
         let mut result: [bindings::i2c_device_id; N] = [bindings::i2c_device_id {
             name: [0; I2C_NAME_SIZE],
             driver_data: 0,
         }; N];
         let mut i = 0;
+        // fill the array with the argument field of the function
         while i < N {
             result[i] = array[i].inner;
             i += 1;
@@ -68,4 +70,7 @@ impl I2CDeviceID {
     }
 }
 
+/// # Safety: The `I2CDeviceID` struct wraps around the kernel's `i2c_device_id`,
+/// which is used for matching devices to their respective drivers. This struct is
+/// initialized once when the driver is loaded, and is only used for read operations afterward.
 unsafe impl Sync for I2CDeviceID {}
